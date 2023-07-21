@@ -29,8 +29,10 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -43,7 +45,7 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Configuration for ip ban app
     /// </summary>
-    public class IPBanConfig : IIsWhitelisted
+    public sealed class IPBanConfig : IIsWhitelisted
     {
         /// <summary>
         /// Allow temporary change of config
@@ -57,9 +59,8 @@ namespace DigitalRuby.IPBanCore
             /// <summary>
             /// Constructor
             /// </summary>
-            /// <param name="service">Service</param>
+            /// <param name="config">Config</param>
             /// <param name="modifier">Config modifier</param>
-            /// <param name="modifiedConfig">Receives modified config</param>
             public TempConfigChanger(IConfigReaderWriter config, Func<string, string> modifier) :
                 this(config, modifier, out _)
             {
@@ -68,7 +69,7 @@ namespace DigitalRuby.IPBanCore
             /// <summary>
             /// Constructor
             /// </summary>
-            /// <param name="service">Service</param>
+            /// <param name="config">Config</param>
             /// <param name="modifier">Config modifier</param>
             /// <param name="modifiedConfig">Receives modified config</param>
             public TempConfigChanger(IConfigReaderWriter config, Func<string, string> modifier, out string modifiedConfig)
@@ -114,6 +115,8 @@ namespace DigitalRuby.IPBanCore
         private readonly TimeSpan cycleTime = TimeSpan.FromMinutes(1.0d);
         private readonly TimeSpan minimumTimeBetweenFailedLoginAttempts = TimeSpan.FromSeconds(5.0);
         private readonly TimeSpan minimumTimeBetweenSuccessfulLoginAttempts = TimeSpan.FromSeconds(5.0);
+
+        private readonly string ipThreatApiKey = string.Empty;
         private readonly int failedLoginAttemptsBeforeBan = 5;
         private readonly bool resetFailedLoginCountForUnbannedIPAddresses;
         private readonly string firewallRulePrefix = "IPBan_";
@@ -123,18 +126,19 @@ namespace DigitalRuby.IPBanCore
         private readonly bool clearBannedIPAddressesOnRestart;
         private readonly bool clearFailedLoginsOnSuccessfulLogin;
         private readonly bool processInternalIPAddresses;
+        private readonly string truncateUserNameChars = string.Empty;
         private readonly HashSet<string> userNameWhitelist = new(StringComparer.Ordinal);
         private readonly int userNameWhitelistMaximumEditDistance = 2;
         private readonly Regex userNameWhitelistRegex;
         private readonly int failedLoginAttemptsBeforeBanUserNameWhitelist = 20;
-        private readonly string processToRunOnBan;
-        private readonly string processToRunOnUnban;
+        private readonly string processToRunOnBan = string.Empty;
+        private readonly string processToRunOnUnban = string.Empty;
         private readonly bool useDefaultBannedIPAddressHandler;
-        private readonly string getUrlUpdate;
-        private readonly string getUrlStart;
-        private readonly string getUrlStop;
-        private readonly string getUrlConfig;
-        private readonly string firewallUriRules;
+        private readonly string getUrlUpdate = string.Empty;
+        private readonly string getUrlStart = string.Empty;
+        private readonly string getUrlStop = string.Empty;
+        private readonly string getUrlConfig = string.Empty;
+        private readonly string firewallUriRules = string.Empty;
         private readonly List<IPBanFirewallRule> extraRules = new();
         private readonly EventViewerExpressionsToBlock expressionsFailure;
         private readonly EventViewerExpressionsToNotify expressionsSuccess;
@@ -181,13 +185,16 @@ namespace DigitalRuby.IPBanCore
                 appSettings[node.Attributes["key"].Value] = node.Attributes["value"].Value;
             }
 
+            TryGetConfig<string>("IPThreatApiKey", ref ipThreatApiKey, false);
             GetConfig<int>("FailedLoginAttemptsBeforeBan", ref failedLoginAttemptsBeforeBan, 1, 50);
-            GetConfig<bool>("ResetFailedLoginCountForUnbannedIPAddresses", ref resetFailedLoginCountForUnbannedIPAddresses);
+            TryGetConfig<bool>("ResetFailedLoginCountForUnbannedIPAddresses", ref resetFailedLoginCountForUnbannedIPAddresses);
             GetConfigArray<TimeSpan>("BanTime", ref banTimes, emptyTimeSpanArray);
             MakeBanTimesValid(ref banTimes);
-            GetConfig<bool>("ClearBannedIPAddressesOnRestart", ref clearBannedIPAddressesOnRestart);
-            GetConfig<bool>("ClearFailedLoginsOnSuccessfulLogin", ref clearFailedLoginsOnSuccessfulLogin);
-            GetConfig<bool>("ProcessInternalIPAddresses", ref processInternalIPAddresses);
+            TryGetConfig<bool>("ClearBannedIPAddressesOnRestart", ref clearBannedIPAddressesOnRestart);
+            TryGetConfig<bool>("ClearFailedLoginsOnSuccessfulLogin", ref clearFailedLoginsOnSuccessfulLogin);
+            TryGetConfig<bool>("ProcessInternalIPAddresses", ref processInternalIPAddresses);
+            TryGetConfig<string>("TruncateUserNameChars", ref truncateUserNameChars);
+            IPBanRegexParser.TruncateUserNameChars = truncateUserNameChars;
             GetConfig<TimeSpan>("ExpireTime", ref expireTime, TimeSpan.Zero, maxBanTimeSpan);
             if (expireTime.TotalMinutes < 1.0)
             {
@@ -195,7 +202,7 @@ namespace DigitalRuby.IPBanCore
             }
             GetConfig<TimeSpan>("CycleTime", ref cycleTime, TimeSpan.FromSeconds(5.0), TimeSpan.FromMinutes(1.0), false);
             GetConfig<TimeSpan>("MinimumTimeBetweenFailedLoginAttempts", ref minimumTimeBetweenFailedLoginAttempts, TimeSpan.Zero, TimeSpan.FromSeconds(15.0), false);
-            GetConfig<string>("FirewallRulePrefix", ref firewallRulePrefix);
+            TryGetConfig<string>("FirewallRulePrefix", ref firewallRulePrefix);
 
             string whitelistString = GetConfig<string>("Whitelist", string.Empty);
             string whitelistRegexString = GetConfig<string>("WhitelistRegex", string.Empty);
@@ -207,11 +214,11 @@ namespace DigitalRuby.IPBanCore
             expressionsSuccess = ParseEventViewer<EventViewerExpressionsToNotify>(doc, "/configuration/ExpressionsToNotify", true);
             logFiles = ParseLogFiles(doc, "/configuration/LogFilesToParse");
 
-            GetConfig<string>("ProcessToRunOnBan", ref processToRunOnBan);
+            TryGetConfig<string>("ProcessToRunOnBan", ref processToRunOnBan);
             processToRunOnBan = processToRunOnBan?.Trim();
-            GetConfig<string>("ProcessToRunOnUnban", ref processToRunOnUnban);
+            TryGetConfig<string>("ProcessToRunOnUnban", ref processToRunOnUnban);
             processToRunOnUnban = processToRunOnUnban?.Trim();
-            GetConfig<bool>("UseDefaultBannedIPAddressHandler", ref useDefaultBannedIPAddressHandler);
+            TryGetConfig<bool>("UseDefaultBannedIPAddressHandler", ref useDefaultBannedIPAddressHandler);
 
             string userNameWhitelistString = GetConfig<string>("UserNameWhitelist", string.Empty);
             if (!string.IsNullOrEmpty(userNameWhitelistString))
@@ -227,25 +234,55 @@ namespace DigitalRuby.IPBanCore
             {
                 userNameWhitelistRegex = new Regex(userNameWhitelistRegexString, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
             }
-            GetConfig<int>("UserNameWhitelistMinimumEditDistance", ref userNameWhitelistMaximumEditDistance);
-            GetConfig<int>("FailedLoginAttemptsBeforeBanUserNameWhitelist", ref failedLoginAttemptsBeforeBanUserNameWhitelist);
-            GetConfig<string>("GetUrlUpdate", ref getUrlUpdate);
-            GetConfig<string>("GetUrlStart", ref getUrlStart);
-            GetConfig<string>("GetUrlStop", ref getUrlStop);
-            GetConfig<string>("GetUrlConfig", ref getUrlConfig);
-            GetConfig<string>("FirewallUriRules", ref firewallUriRules);
+            TryGetConfig<int>("UserNameWhitelistMinimumEditDistance", ref userNameWhitelistMaximumEditDistance);
+            TryGetConfig<int>("FailedLoginAttemptsBeforeBanUserNameWhitelist", ref failedLoginAttemptsBeforeBanUserNameWhitelist);
+            TryGetConfig<string>("GetUrlUpdate", ref getUrlUpdate);
+            TryGetConfig<string>("GetUrlStart", ref getUrlStart);
+            TryGetConfig<string>("GetUrlStop", ref getUrlStop);
+            TryGetConfig<string>("GetUrlConfig", ref getUrlConfig);
+            TryGetConfig<string>("FirewallUriRules", ref firewallUriRules);
             if (string.IsNullOrWhiteSpace(firewallUriRules))
             {
                 // legacy
-                GetConfig<string>("FirewallUriSources", ref firewallUriRules);
+                TryGetConfig<string>("FirewallUriSources", ref firewallUriRules, false);
             }
             firewallUriRules = (firewallUriRules ?? string.Empty).Trim();
 
-            // parse firewall block rules, one per line
-            ParseFirewallBlockRules();
+            // parse extra firewall block rules, one per line
+            ParseExtraFirewallRules();
 
             // set the xml
             Xml = doc.OuterXml;
+        }
+
+        private string GetAppSettingsValue(string key, bool logMissing = true)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                // bad key
+                Logger.Warn("Ignoring null/empty key");
+                return null;
+            }
+            else if (!appSettings.ContainsKey(key))
+            {
+                if (logMissing)
+                {
+                    Logger.Warn("Ignoring key {0}, not found in appSettings", key);
+                }
+                return null; // skip trying to convert
+            }
+
+            // read value from appSettings
+            var stringValue = appSettings[key];
+
+            // config value can be read from env var if value starts and ends with %
+            if (stringValue.StartsWith("%") && stringValue.EndsWith("%"))
+            {
+                // read value from environment variable
+                stringValue = Environment.GetEnvironmentVariable(stringValue.Trim('%'))?.Trim() ?? string.Empty;
+            }
+
+            return stringValue;
         }
 
         private static void MakeBanTimesValid(ref TimeSpan[] banTimes)
@@ -336,10 +373,10 @@ namespace DigitalRuby.IPBanCore
             return logFiles;
         }
 
-        private void ParseFirewallBlockRules()
+        private void ParseExtraFirewallRules()
         {
             string firewallRulesString = null;
-            GetConfig<string>("FirewallRules", ref firewallRulesString);
+            TryGetConfig<string>("FirewallRules", ref firewallRulesString);
             firewallRulesString = (firewallRulesString ?? string.Empty).Trim();
             if (firewallRulesString.Length == 0)
             {
@@ -371,142 +408,6 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        /// <summary>
-        /// Validate a regex - returns an error otherwise empty string if success
-        /// </summary>
-        /// <param name="regex">Regex to validate, can be null or empty</param>
-        /// <param name="options">Regex options</param>
-        /// <param name="throwException">True to throw the exception instead of returning the string, false otherwise</param>
-        /// <returns>Null if success, otherwise an error string indicating the problem</returns>
-        public static string ValidateRegex(string regex, RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, bool throwException = false)
-        {
-            try
-            {
-                if (regex != null)
-                {
-                    _ = new Regex(regex, options);
-                }
-                return null;
-            }
-            catch (Exception ex)
-            {
-                if (throwException)
-                {
-                    throw;
-                }
-                return ex.Message;
-            }
-        }
-
-        private static readonly Dictionary<string, Regex> regexCacheCompiled = new();
-        private static readonly Dictionary<string, Regex> regexCacheNotCompiled = new();
-
-        /// <summary>
-        /// Get a regex from text
-        /// </summary>
-        /// <param name="text">Text</param>
-        /// <param name="multiline">Whether to use multi-line regex, default is false which is single line</param>
-        /// <returns>Regex or null if text is null or whitespace</returns>
-        public static Regex ParseRegex(string text, bool multiline = false)
-        {
-            const int maxCacheSize = 200;
-
-            text = (text ?? string.Empty).Trim();
-            if (text.Length == 0)
-            {
-                return null;
-            }
-
-            string[] lines = text.Split('\n');
-            StringBuilder sb = new();
-            foreach (string line in lines)
-            {
-                string trimmedLine = line.Trim();
-                if (trimmedLine.Length != 0)
-                {
-                    sb.Append(trimmedLine);
-                }
-            }
-            RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled;
-            if (multiline)
-            {
-                options |= RegexOptions.Multiline;
-            }
-            string sbText = sb.ToString();
-            string cacheKey = ((uint)options).ToString("X8") + ":" + sbText;
-
-            // allow up to maxCacheSize compiled dynamic regular expression, with minimal config changes/reload, this should last the lifetime of an app
-            lock (regexCacheCompiled)
-            {
-                if (regexCacheCompiled.TryGetValue(cacheKey, out Regex value))
-                {
-                    return value;
-                }
-                else if (regexCacheCompiled.Count < maxCacheSize)
-                {
-                    value = new Regex(sbText, options);
-                    regexCacheCompiled.Add(cacheKey, value);
-                    return value;
-                }
-            }
-
-            // have to fall-back to non-compiled regex to avoid run-away memory usage
-            try
-            {
-                lock (regexCacheNotCompiled)
-                {
-                    if (regexCacheNotCompiled.TryGetValue(cacheKey, out Regex value))
-                    {
-                        return value;
-                    }
-
-                    // strip compiled flag
-                    options &= (~RegexOptions.Compiled);
-                    value = new Regex(sbText, options);
-                    regexCacheNotCompiled.Add(cacheKey, value);
-                    return value;
-                }
-            }
-            finally
-            {
-                // clear non-compield regex cache if it exceeds max size
-                lock (regexCacheNotCompiled)
-                {
-                    if (regexCacheNotCompiled.Count > maxCacheSize)
-                    {
-                        regexCacheNotCompiled.Clear();
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Clean a multi-line string to make it more readable
-        /// </summary>
-        /// <param name="text">Multi-line string</param>
-        /// <returns>Cleaned multi-line string</returns>
-        public static string CleanMultilineString(string text)
-        {
-            text = (text ?? string.Empty).Trim();
-            if (text.Length == 0)
-            {
-                return string.Empty;
-            }
-
-            string[] lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            StringBuilder sb = new();
-            foreach (string line in lines)
-            {
-                string trimmedLine = line.Trim();
-                if (trimmedLine.Length != 0)
-                {
-                    sb.Append(trimmedLine);
-                    sb.Append('\n');
-                }
-            }
-            return sb.ToString().Trim();
-        }
-
         /// <inheritdoc />
         public override string ToString()
         {
@@ -519,27 +420,13 @@ namespace DigitalRuby.IPBanCore
         /// <typeparam name="T">Type of value to get</typeparam>
         /// <param name="key">Key</param>
         /// <param name="defaultValue">Default value if null or not found</param>
-        /// <returns>Value</returns>
+        /// <returns>Value or defaultValue if not found</returns>
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public T GetConfig<T>(string key, T defaultValue = default)
         {
-            try
-            {
-                if (appSettings.ContainsKey(key))
-                {
-                    var value = appSettings[key];
-                    if (value != null)
-                    {
-                        var converter = TypeDescriptor.GetConverter(typeof(T));
-                        return (T)converter.ConvertFromInvariantString(value);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "Error deserializing appSettings key {0}", key);
-            }
-            return defaultValue;
+            T value = defaultValue;
+            TryGetConfig(key, ref value);
+            return value;
         }
 
         /// <summary>
@@ -547,22 +434,30 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         /// <typeparam name="T">Type of value to set</typeparam>
         /// <param name="key">Key</param>
-        /// <param name="value">Value</param>
+        /// <param name="value">Value. Can start and end with % to read from env var</param>
+        /// <param name="logMissing">Whether to log missing keys</param>
+        /// <returns>True if config found, false if not</returns>
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public void GetConfig<T>(string key, ref T value)
+        public bool TryGetConfig<T>(string key, ref T value, bool logMissing = true)
         {
             try
             {
-                var converter = TypeDescriptor.GetConverter(typeof(T));
-                if (appSettings.ContainsKey(key))
+                var stringValue = GetAppSettingsValue(key, logMissing);
+
+                if (!string.IsNullOrWhiteSpace(stringValue))
                 {
-                    value = (T)converter.ConvertFromInvariantString(appSettings[key]);
+                    // deserialize string value
+                    value = (T)TypeDescriptor.GetConverter(typeof(T)).ConvertFromInvariantString(stringValue);
                 }
+
+                return true;
             }
             catch (Exception ex)
             {
                 Logger.Error(ex, "Error deserializing appSettings key {0}", key);
             }
+
+            return false;
         }
 
         /// <summary>
@@ -580,8 +475,12 @@ namespace DigitalRuby.IPBanCore
         {
             try
             {
-                var converter = TypeDescriptor.GetConverter(typeof(T));
-                value = (T)converter.ConvertFromInvariantString(appSettings[key]);
+                var stringValue = GetAppSettingsValue(key);
+                if (!string.IsNullOrWhiteSpace(stringValue))
+                {
+                    var converter = TypeDescriptor.GetConverter(typeof(T));
+                    value = (T)converter.ConvertFromInvariantString(stringValue);
+                }
             }
             catch (Exception ex)
             {
@@ -606,8 +505,9 @@ namespace DigitalRuby.IPBanCore
         {
             try
             {
+                var stringValue = GetAppSettingsValue(key) ?? string.Empty;
                 var converter = TypeDescriptor.GetConverter(typeof(T));
-                string[] items = (appSettings[key] ?? string.Empty).Split('|', ';', ',');
+                string[] items = stringValue.Split('|', ';', ',');
                 List<T> list = new();
                 foreach (string item in items)
                 {
@@ -712,8 +612,20 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Groups that match</returns>
         public IEnumerable<EventViewerExpressionGroup> WindowsEventViewerGetGroupsMatchingKeywords(ulong keywords)
         {
-            return WindowsEventViewerExpressionsToBlock?.Groups.Where(g => (g.KeywordsULONG == keywords))
-                .Union(expressionsSuccess?.Groups.Where(g => (g.KeywordsULONG == keywords)));
+            if (WindowsEventViewerExpressionsToBlock is null && expressionsSuccess is null)
+            {
+                return Array.Empty<EventViewerExpressionGroup>();
+            }
+            else if (WindowsEventViewerExpressionsToBlock is null)
+            {
+                return expressionsSuccess.Groups.Where(g => (g.KeywordsULONG == keywords));
+            }
+            else if (expressionsSuccess is null)
+            {
+                return WindowsEventViewerExpressionsToBlock.Groups.Where(g => (g.KeywordsULONG == keywords));
+            }
+            return WindowsEventViewerExpressionsToBlock.Groups.Where(g => (g.KeywordsULONG == keywords))
+                .Union(expressionsSuccess.Groups.Where(g => (g.KeywordsULONG == keywords)));
         }
 
         /// <summary>
@@ -883,6 +795,11 @@ namespace DigitalRuby.IPBanCore
         public IReadOnlyDictionary<string, string> AppSettings => appSettings;
 
         /// <summary>
+        /// Api key from https://ipthreat.net, if any
+        /// </summary>
+        public string IPThreatApiKey { get { return ipThreatApiKey; } }
+        
+        /// <summary>
         /// Number of failed login attempts before a ban is initiated
         /// </summary>
         public int FailedLoginAttemptsBeforeBan { get { return failedLoginAttemptsBeforeBan; } }
@@ -963,6 +880,11 @@ namespace DigitalRuby.IPBanCore
         /// Blacklist
         /// </summary>
         public IIPBanFilter BlacklistFilter => blacklistFilter;
+
+        /// <summary>
+        /// Characters to truncate user names at, empty for no truncation
+        /// </summary>
+        public string TruncateUserNameChars { get { return truncateUserNameChars; } }
 
         /// <summary>
         /// White list user names. Any user name found not in the list is banned, unless the list is empty, in which case no checking is done.

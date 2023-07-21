@@ -22,10 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using Microsoft.Win32;
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 
 namespace DigitalRuby.IPBanCore
 {
@@ -86,16 +90,17 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public static readonly IReadOnlyCollection<IPAddressRange> InternalRangesIPV6 = new IPAddressRange[]
         {
-            IPAddressRange.Parse("::-1FFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"),
-            //IPAddressRange.Parse("100::/64"),
-            IPAddressRange.Parse("2001:0000::/32"),
-            IPAddressRange.Parse("2001:db8::/32"),
-            IPAddressRange.Parse("2002::/16"),
-            IPAddressRange.Parse("4000:0000:0000:0000:0000:0000:0000:0000-FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF")
-            //IPAddressRange.Parse("fc00::/7"),
-            //IPAddressRange.Parse("fd00::/8"),
-            //IPAddressRange.Parse("fe80::/10"),
-            //IPAddressRange.Parse("ff00::/8")
+            IPAddressRange.Parse("::-1FFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // loopbacks
+            //IPAddressRange.Parse("::FFFF:0:0-::FFFF:FFFF:FFFF"), // ipv4 mapped
+            IPAddressRange.Parse("100::-100:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // discard prefix
+            //IPAddressRange.Parse("2001::-2001:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // teredo
+            IPAddressRange.Parse("2001:10::-2001:2F:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // ORCHID
+            IPAddressRange.Parse("2001:DB8::-2001:DB8:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // documentation
+            //IPAddressRange.Parse("2002::-2002:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // 6to4
+            IPAddressRange.Parse("FC00::-FCFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // unique local
+            IPAddressRange.Parse("FE80::-FE80:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // link local
+            IPAddressRange.Parse("FEC0::-FEC0:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF"), // site local
+            IPAddressRange.Parse("FF00::-FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF") // multicast
         };
         private static readonly List<IPV6Range> internalRangesIPV6Optimized = InternalRangesIPV6.Select(r => new IPV6Range(r)).ToList();
 
@@ -103,21 +108,27 @@ namespace DigitalRuby.IPBanCore
         /// An extension method to determine if an IP address is internal, as specified in RFC1918
         /// </summary>
         /// <param name="ip">The IP address that will be tested</param>
-        /// <returns>Returns true if the IP is internal, false if it is external</returns>
+        /// <returns>Returns true if the IP is internal or null, false if it is external</returns>
         public static bool IsInternal(this System.Net.IPAddress ip)
         {
             try
             {
+                if (ip == null)
+                {
+                    return false;
+                }
                 ip = ip.Clean();
                 if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
                 {
                     uint value = ip.ToUInt32();
-                    return internalRangesIPV4Optimized.BinarySearch(new IPV4Range(value, value)) >= 0;
+                    int idx = internalRangesIPV4Optimized.BinarySearch(new IPV4Range(value, value));
+                    return idx >= 0;
                 }
                 else
                 {
                     UInt128 value = ip.ToUInt128();
-                    return internalRangesIPV6Optimized.BinarySearch(new IPV6Range(value, value)) >= 0;
+                    int idx = internalRangesIPV6Optimized.BinarySearch(new IPV6Range(value, value));
+                    return idx >= 0;
                 }
             }
             catch (System.Exception ex)
@@ -176,111 +187,171 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Get all ips of local machine
+        /// Get all ips of local machine, in priority order.
+        /// On Windows, priority is first attempted to be read using the 'Interface Metric' from adapter properties.
+        ///  If this is not able to read, then the routing table priority is used.
+        /// On Linux, priority is currently ignored.
         /// </summary>
-        /// <returns>All ips of local machine</returns>
-        public static IReadOnlyCollection<System.Net.IPAddress> GetAllIPAddresses()
+        /// <returns>All ips of local machine (key) and priority (value). Higher priority are sorted first.</returns>
+        public static IReadOnlyCollection<KeyValuePair<System.Net.IPAddress, int>> GetIPAddressesByPriority()
         {
-            HashSet<System.Net.IPAddress> ipSet = new();
+            Dictionary<System.Net.IPAddress, int> ips = new();
             foreach (NetworkInterface netInterface in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (netInterface.OperationalStatus == OperationalStatus.Up &&
                 (
                     string.IsNullOrWhiteSpace(netInterface.Name) ||
-                    !netInterface.Name.Contains("loopback", System.StringComparison.OrdinalIgnoreCase))
+                        (!netInterface.Name.Contains("loopback", System.StringComparison.OrdinalIgnoreCase) &&
+                        !netInterface.Name.Contains("vEthernet (wsl)", StringComparison.OrdinalIgnoreCase)))
                 )
                 {
                     IPInterfaceProperties ipProps = netInterface.GetIPProperties();
+                    var indexV4 = 0;
+                    var indexV6 = 0;
+
+                    // attempt to get priorities/metrics, ignoring exceptions
+                    try
+                    {
+                        TryGetInterfaceMetric(netInterface.Id, true, out indexV4);
+                        // this is not a real priority but leaving it for reference (it's routing table priority)
+                        // indexV4 = ipProps.GetIPv4Properties().Index;
+                    }
+                    catch
+                    {
+                    }
+                    try
+                    {
+                        TryGetInterfaceMetric(netInterface.Id, false, out indexV6);
+                        // this is not a real priority but leaving it for reference (it's routing table priority)
+                        // indexV6 = ipProps.GetIPv6Properties().Index;
+                    }
+                    catch
+                    {
+                    }
+
                     foreach (UnicastIPAddressInformation addr in ipProps.UnicastAddresses)
                     {
                         if (!addr.Address.IsLocalHost())
                         {
-                            ipSet.Add(addr.Address.Clean());
+                            var cleanedIp = addr.Address.Clean();
+                            if (!ips.ContainsKey(cleanedIp))
+                            {
+                                var priority = cleanedIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? indexV4 : indexV6;
+                                ips.Add(cleanedIp, priority);
+                            }
                         }
                     }
                 }
             }
-            return ipSet;
+            return ips.OrderByDescending(i => i.Value)
+                .ThenBy(i => i.Key.AddressFamily)
+                .ToArray();
         }
 
         /// <summary>
-        /// Get the ip addresses of the local machine
+        /// Attempt to retrieve the interface metric from an adapter id. Currently only works on Windows.
         /// </summary>
-        /// <param name="dns">Dns lookup</param>
-        /// <param name="allowLocal">Whether to return localhost ip</param>
-        /// <param name="addressFamily">Desired address family or null for all</param>
-        /// <returns>Local ip address or empty array if unable to determine. If no address family match, falls back to an ipv6 attempt.</returns>
-        public static async System.Threading.Tasks.Task<System.Net.IPAddress[]> GetLocalIPAddressesAsync(this IDnsLookup dns,
-            bool allowLocal = true, System.Net.Sockets.AddressFamily? addressFamily = null)
+        /// <param name="adapterId">Adapter id</param>
+        /// <param name="ipv4">Is this an ipv4 or ipv6 adapter?</param>
+        /// <param name="metric">The result interface metric or 0 if not found</param>
+        /// <returns>True if interface metric was retrieved, false otherwise</returns>
+        public static bool TryGetInterfaceMetric(string adapterId, bool ipv4, out int metric)
         {
-            try
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                // append ipv4 first, then the ipv6 then the remote ip
-                List<IPAddress> ips = new();
-                string hostName = await dns.GetHostNameAsync();
-                IPAddress[] hostAddresses = await dns.GetHostAddressesAsync(hostName);
-                ips.AddRange(hostAddresses.Where(i => !i.IsLocalHost()));
-
-                // sort ipv4 first
-                ips.Sort((ip1, ip2) =>
+                // try getting the real value from the registry
+                var typeKey = "Tcpip" + (ipv4 ? string.Empty : "6");
+                using var interfacesKey = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{typeKey}\Parameters\Interfaces");
+                foreach (string subKeyName in interfacesKey.GetSubKeyNames())
                 {
-                    int compare = ip1.AddressFamily.CompareTo(ip2.AddressFamily);
-                    if (compare == 0)
+                    using var subKey = interfacesKey.OpenSubKey(subKeyName);
+                    if (subKey.Name.Contains(adapterId, System.StringComparison.OrdinalIgnoreCase))
                     {
-                        compare = ip1.CompareTo(ip2);
+                        string metricString;
+                        int _tmpInt;
+
+                        // try finding the same in sub keys, sometimes Windows makes a clone of the key as a child
+                        foreach (string subkeyName2 in subKey.GetSubKeyNames())
+                        {
+                            using var subkey2 = subKey.OpenSubKey(subkeyName2);
+                            metricString = subkey2.GetValue("InterfaceMetric")?.ToString();
+                            if (int.TryParse(metricString, out _tmpInt))
+                            {
+                                metric = _tmpInt;
+                                return true;
+                            }
+                        }
+
+                        metricString = subKey.GetValue("InterfaceMetric")?.ToString();
+                        if (int.TryParse(metricString, out _tmpInt))
+                        {
+                            metric = _tmpInt;
+                            return true;
+                        }
+
+                        break;
                     }
-                    return compare;
-                });
-
-                if (allowLocal)
-                {
-                    ips.AddRange(localHostIP);
                 }
-
-                return ips.Where(ip => (allowLocal || !ip.IsLocalHost()) &&
-                    (addressFamily is null || ip.AddressFamily == addressFamily.Value)).ToArray();
             }
-            catch
-            {
-                // eat exception, delicious
-            }
-            return System.Array.Empty<IPAddress>();
+            metric = 0;
+            return false;
         }
 
         /// <summary>
-        /// Get all ip addresses of the machine, in priority order, putting external ipv4 first, then external ipv6, then internal ipv4 and finally internal ipv6
+        /// Get all ip addresses of the machine, in sorted order,
+        /// putting external ipv4 first,
+        /// then external ipv6,
+        /// then priority,
+        /// then internal ipv4,
+        /// then internal ipv6,
+        /// then finally by ip itself
         /// </summary>
-        /// <param name="overrides">Override the local ip addresses</param>
+        /// <param name="ipAddresses">The ip addresses to sort, or null to query the hardware on the machine</param>
+        /// <param name="preferInternal">Whether to prefer internal ip addresses</param>
         /// <returns>IP addresses</returns>
-        public static IEnumerable<System.Net.IPAddress> GetPriorityIPAddresses(string[] overrides = null)
+        public static IEnumerable<System.Net.IPAddress> GetSortedIPAddresses(
+            IEnumerable<KeyValuePair<string, int>> ipAddresses = null, bool preferInternal = false)
         {
-            List<System.Net.IPAddress> ips = new();
             try
             {
-                var collection = (overrides is null ? GetAllIPAddresses() : overrides.Select(o => System.Net.IPAddress.Parse(o)));
-                ips.AddRange(collection);
-                ips.Sort((ip1, ip2) =>
+                List<KeyValuePair<System.Net.IPAddress, int>> collection;
+                if (ipAddresses is null)
                 {
-                    int internal1 = ip1.IsInternal() ? 1 : 0;
-                    int internal2 = ip2.IsInternal() ? 1 : 0;
+                    collection = GetIPAddressesByPriority().ToList();
+                }
+                else
+                {
+                    collection = ipAddresses.Select(o => new KeyValuePair<System.Net.IPAddress, int>(System.Net.IPAddress.Parse(o.Key), o.Value)).ToList();
+                }
+                collection.Sort((ip1, ip2) =>
+                {
+                    int internal1 = ip1.Key.IsInternal() ? 1 : 0;
+                    int internal2 = ip2.Key.IsInternal() ? 1 : 0;
                     if (internal1 != internal2)
                     {
-                        return internal1.CompareTo(internal2);
+                        return preferInternal ? internal2.CompareTo(internal1) : internal1.CompareTo(internal2);
                     }
-                    int family1 = ip1.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 1 : 0;
-                    int family2 = ip2.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 1 : 0;
+                    int priority1 = ip1.Value;
+                    int priority2 = ip2.Value;
+                    if (priority1 != priority2)
+                    {
+                        return priority2.CompareTo(priority1);
+                    }
+                    int family1 = ip1.Key.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 1 : 0;
+                    int family2 = ip2.Key.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 1 : 0;
                     if (family1 != family2)
                     {
                         return family1.CompareTo(family2);
                     }
-                    return ip1.CompareTo(ip2);
+                    return ip1.Key.CompareTo(ip2.Key);
                 });
+                return collection.Select(c => c.Key);
             }
             catch
             {
                 // non-fatal
             }
-            return ips;
+            return Array.Empty<System.Net.IPAddress>();
         }
     }
 }

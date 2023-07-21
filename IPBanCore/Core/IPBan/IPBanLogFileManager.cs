@@ -44,6 +44,10 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public IReadOnlyCollection<LogFileScanner> LogFilesToParse { get { return logFilesToParse; } }
 
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="service">Service</param>
         public IPBanLogFileManager(IIPBanService service)
         {
             this.service = service;
@@ -101,18 +105,19 @@ namespace DigitalRuby.IPBanCore
                         IPBanIPAddressLogFileScannerOptions options = new()
                         {
                             Dns = service.DnsLookup,
-                            LoginHandler = service,
+                            EventHandler = service,
                             MaxFileSizeBytes = newFile.MaxFileSize,
                             PathAndMask = pathAndMask,
                             PingIntervalMilliseconds = (service.ManualCycle ? 0 : newFile.PingInterval),
-                            RegexFailure = IPBanConfig.ParseRegex(newFile.FailedLoginRegex, true),
-                            RegexSuccess = IPBanConfig.ParseRegex(newFile.SuccessfulLoginRegex, true),
+                            RegexFailure = IPBanRegexParser.ParseRegex(newFile.FailedLoginRegex, true),
+                            RegexSuccess = IPBanRegexParser.ParseRegex(newFile.SuccessfulLoginRegex, true),
                             RegexFailureTimestampFormat = newFile.FailedLoginRegexTimestampFormat,
                             RegexSuccessTimestampFormat = newFile.SuccessfulLoginRegexTimestampFormat,
                             Source = newFile.Source,
                             FailedLoginThreshold = newFile.FailedLoginThreshold,
                             FailedLogLevel = newFile.FailedLoginLogLevel,
-                            SuccessfulLogLevel = newFile.SuccessfulLoginLogLevel
+                            SuccessfulLogLevel = newFile.SuccessfulLoginLogLevel,
+                            NotificationFlags = newFile.NotificationFlags
                         };
 
                         // if we have an existing log file scanner, but it does not match the new configuration, remove the old log file scanner
@@ -128,7 +133,8 @@ namespace DigitalRuby.IPBanCore
 
                         // make sure we match the platform before potentially making a new log file scanner
                         bool platformMatches = !string.IsNullOrWhiteSpace(newFile.PlatformRegex) &&
-                            Regex.IsMatch(OSUtility.Description, newFile.PlatformRegex.ToString().Trim(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                            Regex.IsMatch(OSUtility.Description, newFile.PlatformRegex.ToString().Trim(),
+                            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
                         if (existingScanner is null && platformMatches)
                         {

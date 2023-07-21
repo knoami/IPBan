@@ -288,13 +288,13 @@
     <value>IP Address</value>
     <comment>An ip address, like 127.0.0.1</comment>
   </data>
-  <data name="IPAddressEventFlags_BlockedIPAddress" xml:space="preserve">
+  <data name="IPAddressNotificationFlags_BlockedIPAddress" xml:space="preserve">
     <value>Blocked IP Addresses</value>
   </data>
-  <data name="IPAddressEventFlags_FailedLogin" xml:space="preserve">
+  <data name="IPAddressNotificationFlags_FailedLogin" xml:space="preserve">
     <value>Failed Logins</value>
   </data>
-  <data name="IPAddressEventFlags_SuccessfulLogin" xml:space="preserve">
+  <data name="IPAddressNotificationFlags_SuccessfulLogin" xml:space="preserve">
     <value>Successful Logins</value>
   </data>
   <data name="IPBanKey1" xml:space="preserve">
@@ -774,7 +774,7 @@
   <data name="IsIPAddressBanned" xml:space="preserve">
     <value>Is IP Address Banned</value>
   </data>
-  <data name="IPAddressEventFlags_WhoIs" xml:space="preserve">
+  <data name="IPAddressNotificationFlags_WhoIs" xml:space="preserve">
     <value>Who Is</value>
   </data>
   <data name="ChangeCredentials" xml:space="preserve">
@@ -837,7 +837,7 @@
     <value>Notification Web Hook</value>
   </data>
   <data name="NotificationWebHookTooltip" xml:space="preserve">
-    <value>POST a JSON object to an end point for every notification. Contains Subject, Body and ToAddresses fields.</value>
+    <value>Url to POST a json request for notifications. The posted json contains Subject, Body and ToAddresses fields. Advanced: Use Uri=[uri] | Template=[template] | Format=[plain or markdown or slack, leave off for html]. Template will transform notification to your json. Example: { "text":"###SUBJECT###","blocks": [ { "type": "section", "text": { "type": "mrkdwn", "text": "###SUBJECT###\n\n###BODY###" } } ] } | format = slack | Uri = https://hooks.slack.com/services/KEY1/KEY2</value>
   </data>
   <data name="FailedLoginLogLevel" xml:space="preserve">
     <value>Failed Log Level</value>
@@ -882,7 +882,7 @@
     <value>Common Failed User Name Ban</value>
   </data>
   <data name="AggregateBanUserNamesTooltip" xml:space="preserve">
-    <value>Threshold,hours to examine common user names and ban attackers that exceed threshold within hours timespan. Set to empty to disable this feature.</value>
+    <value>Threshold,hours to examine common user names and ban attackers that meet a threshold within hours timespan. Set to empty to disable this feature.</value>
   </data>
   <data name="CountryBlacklistInvert" xml:space="preserve">
     <value>Invert Country Blocklist</value>
@@ -983,5 +983,110 @@
   </data>
   <data name="PasswordAgain" xml:space="preserve">
     <value>Password again</value>
+  </data>
+  <data name="IPAddressNotificationFlags_DailyReport" xml:space="preserve">
+    <value>Daily Report</value>
+  </data>
+  <data name="IPAddressNotificationFlags_MonthlyReport" xml:space="preserve">
+    <value>Monthly Report</value>
+  </data>
+  <data name="IPAddressNotificationFlags_WeeklyReport" xml:space="preserve">
+    <value>Weekly Report</value>
+  </data>
+  <data name="IPAddressNotificationFlags_SuccessfulWebAdminLogin" xml:space="preserve">
+    <value>Web Admin Successful Logins</value>
+  </data>
+  <data name="IPThreatApiKey" xml:space="preserve">
+    <value>IPThreat Api Key</value>
+  </data>
+  <data name="IPThreatApiKeyTooltip" xml:space="preserve">
+    <value>Api key for https://ipthreat.net</value>
+  </data>
+  <data name="Plugins" xml:space="preserve">
+    <value>Plugins</value>
+  </data>
+  <data name="RequestAPlugin" xml:space="preserve">
+    <value>Request a plugin</value>
+  </data>
+  <data name="Cloudflare_ApiToken_Description" xml:space="preserve">
+    <value>Cloudflare api token to add firewall rules</value>
+  </data>
+  <data name="Cloudflare_MaxCount_Description" xml:space="preserve">
+    <value>Max count of ips to put in Cloudflare firewall, 10000 max</value>
+  </data>
+  <data name="Cloudflare_ZoneIds_Description" xml:space="preserve">
+    <value>Comma separated zone ids to add firewall rules to</value>
+  </data>
+  <data name="CountryBlacklistPrecise" xml:space="preserve">
+    <value>Country Blacklist Precise</value>
+  </data>
+  <data name="CountryBlacklistPreciseTooltip" xml:space="preserve">
+    <value>Use precise country ip addresses (requires about 7x more RAM)</value>
+  </data>
+  <data name="UserNameTruncationChars" xml:space="preserve">
+    <value>User name truncation chars</value>
+  </data>
+  <data name="UserNameTruncationCharsTooltip" xml:space="preserve">
+    <value>Characters to truncate user name at or empty for none. @ sign can be used to strip domain name off email or active directory login for example</value>
+  </data>
+  <data name="AutoUpdate" xml:space="preserve">
+    <value>Auto Update</value>
+  </data>
+  <data name="ClearFailedLoginsOnSuccessfulLogin" xml:space="preserve">
+    <value>Clear Failures on Login Success</value>
+  </data>
+  <data name="ClearFailedLoginsOnSuccessfulLoginTooltip" xml:space="preserve">
+    <value>When an ip address receives a successful login, whether to clear all the failed logins for that ip from memory</value>
+  </data>
+  <data name="WhitelistUrls" xml:space="preserve">
+    <value>Whitelist Urls</value>
+  </data>
+  <data name="Id" xml:space="preserve">
+    <value>Id</value>
+  </data>
+  <data name="AccessDuration" xml:space="preserve">
+    <value>Access Duration</value>
+  </data>
+  <data name="MachineAccess" xml:space="preserve">
+    <value>Machine Access</value>
+  </data>
+  <data name="RemainingUses" xml:space="preserve">
+    <value>Remaining Uses</value>
+  </data>
+  <data name="IPAddresses" xml:space="preserve">
+    <value>IPAddresses</value>
+  </data>
+  <data name="Url" xml:space="preserve">
+    <value>Url</value>
+  </data>
+  <data name="AsnBlacklist" xml:space="preserve">
+    <value>ASN Blocklist</value>
+  </data>
+  <data name="AsnBlacklistTooltip" xml:space="preserve">
+    <value>ASN to block (autonymous system number)</value>
+  </data>
+  <data name="AsnBlockHelpLabel" xml:space="preserve">
+    <value>Start typing and select ASN that appear from the dropdown, can use id or name</value>
+  </data>
+  <data name="AsnBlockRangeEntryCount" xml:space="preserve">
+    <value>{0} entries in the ASN block list</value>
+  </data>
+  <data name="Blacklister" xml:space="preserve">
+    <value>Blacklister</value>
+  </data>
+  <data name="DisableNotificationFlags" xml:space="preserve">
+    <value>Disable Notification Flags</value>
+  </data>
+  <data name="Options" xml:space="preserve">
+    <value>Options</value>
+  </data>
+  <data name="CountryBlacklistOverride" xml:space="preserve">
+    <value>Override Country Blacklist</value>
+  </data>
+  <data name="SslSelfSignedCertificate" xml:space="preserve">
+    <value>Self signed certificate</value>
+  </data>
+  <data name="SslSelfSignedCertificateTooltip" xml:space="preserve">
+    <value>Turn on if your certificate is self signed</value>
   </data>
 </root>

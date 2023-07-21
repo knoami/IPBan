@@ -28,6 +28,7 @@ using NUnit.Framework;
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DigitalRuby.IPBanTests
@@ -104,25 +105,28 @@ namespace DigitalRuby.IPBanTests
             AddEvent(nameof(IIPBanDelegate.Start));
         }
 
-        Task IIPBanDelegate.RunCycleAsync()
+        Task IIPBanDelegate.RunCycleAsync(CancellationToken cancelToken)
         {
             AddEvent(nameof(IIPBanDelegate.RunCycleAsync));
             return Task.CompletedTask;
         }
 
-        Task IIPBanDelegate.IPAddressBanned(string ip, string source, string userName, string machineGuid, string osName, string osVersion, DateTime timestamp, bool banned)
+        Task IIPBanDelegate.IPAddressBanned(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, DateTime timestamp, bool banned, IPAddressNotificationFlags notificationFlags)
         {
             AddEvent(nameof(IIPBanDelegate.IPAddressBanned), ip, source, userName, banned);
             return Task.CompletedTask;
         }
 
-        Task IIPBanDelegate.LoginAttemptFailed(string ip, string source, string userName, string machineGuid, string osName, string osVersion, int count, DateTime timestamp)
+        Task IIPBanDelegate.LoginAttemptFailed(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, int count, DateTime timestamp, IPAddressNotificationFlags notificationFlags)
         {
             AddEvent(nameof(IIPBanDelegate.LoginAttemptFailed), ip, source, userName);
             return Task.CompletedTask;
         }
 
-        Task IIPBanDelegate.LoginAttemptSucceeded(string ip, string source, string userName, string machineGuid, string osName, string osVersion, int count, DateTime timestamp)
+        Task IIPBanDelegate.LoginAttemptSucceeded(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, int count, DateTime timestamp, IPAddressNotificationFlags notificationFlags)
         {
             AddEvent(nameof(IIPBanDelegate.LoginAttemptSucceeded), ip, source, userName);
             return Task.CompletedTask;

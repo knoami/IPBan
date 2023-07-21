@@ -57,6 +57,27 @@ namespace DigitalRuby.IPBanCore
 
             // by default, all IPBan services will parse log files
             updaters.Add(new IPBanLogFileManager(this));
+
+            var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? string.Empty;
+            var appName = Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty;
+            appName = (appName.Contains("ipbanpro", StringComparison.OrdinalIgnoreCase) ? "ipbanpro" : "ipban");
+            AppName = appName + " " + version;
+            cycleActions = new (string, Func<CancellationToken, Task>)[]
+            {
+                ("GC", _cancelToken => { GC.GetTotalMemory(true); return Task.CompletedTask; }),
+                (nameof(UpdateConfiguration), UpdateConfiguration),
+                (nameof(SetNetworkInfo), SetNetworkInfo),
+                (nameof(UpdateDelegate), UpdateDelegate),
+                (nameof(UpdateUpdaters), UpdateUpdaters),
+                (nameof(UpdateExpiredIPAddressStates), UpdateExpiredIPAddressStates),
+                (nameof(ProcessPendingLogEvents), ProcessPendingLogEvents),
+                (nameof(ProcessPendingFailedLogins), ProcessPendingFailedLogins),
+                (nameof(ProcessPendingSuccessfulLogins), ProcessPendingSuccessfulLogins),
+                (nameof(UpdateFirewall), UpdateFirewall),
+                (nameof(RunFirewallTasks), RunFirewallTasks),
+                (nameof(OnUpdate), cancelToken => OnUpdate(cancelToken)),
+                (nameof(ShowRunningMessage), ShowRunningMessage)
+            };
         }
 
         /// <summary>
@@ -71,34 +92,28 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Manually run one cycle. This is called automatically, unless ManualCycle is true.
         /// </summary>
-        public async Task RunCycleAsync()
+        /// <param name="cancelToken">Cancel token</param>
+        public async Task RunCycleAsync(CancellationToken cancelToken = default)
         {
             try
             {
-                if (await cycleLock.WaitAsync(1))
+                // ensure we don't stack multiple cycles
+                if (await cycleLock.WaitAsync(1, cancelToken))
                 {
                     try
                     {
                         if (IsRunning)
                         {
-                            GC.GetTotalMemory(true);
-                            await UpdateConfiguration();
-                            await SetNetworkInfo();
-                            await UpdateDelegate();
-                            await UpdateUpdaters();
-                            await UpdateExpiredIPAddressStates();
-                            await ProcessPendingLogEvents();
-                            await ProcessPendingFailedLogins();
-                            await ProcessPendingSuccessfulLogins();
-                            await UpdateFirewall();
-                            await RunFirewallTasks();
-                            try
+                            foreach (var action in cycleActions)
                             {
-                                await OnUpdate();
-                            }
-                            catch
-                            {
-                                // derived or other exception should not affect cycle
+                                try
+                                {
+                                    await action.action(cancelToken);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Logger.Error(ex, "Error in cycle action {0}", action.name);
+                                }
                             }
                         }
                     }
@@ -110,7 +125,8 @@ namespace DigitalRuby.IPBanCore
             }
             catch (Exception ex)
             {
-                if (ex is not OperationCanceledException)
+                if (ex is not OperationCanceledException &&
+                    ex is not ObjectDisposedException)
                 {
                     Logger.Error($"Error on {nameof(IPBanService)}.{nameof(RunCycleAsync)}", ex);
                 }
@@ -131,157 +147,6 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Get an ip address and user name out of text using regex. Regex may contain groups named source_[sourcename] to override the source.
-        /// </summary>
-        /// <param name="regex">Regex</param>
-        /// <param name="text">Text</param>
-        /// <param name="ipAddress">Found ip address or null if none</param>
-        /// <param name="userName">Found user name or null if none</param>
-        /// <param name="timestampFormat">Timestamp format</param>
-        /// <param name="eventType">Event type</param>
-        /// <param name="info">Info</param>
-        /// <param name="dns">Dns lookup to resolve ip addresses</param>
-        /// <returns>Set of matches from text</returns>
-        public static IEnumerable<IPAddressLogEvent> GetIPAddressEventsFromRegex(Regex regex, string text,
-            string timestampFormat = null, IPAddressEventType eventType = IPAddressEventType.FailedLogin,
-            string info = null, IDnsLookup dns = null)
-        {
-            const string customSourcePrefix = "source_";
-
-            // if no regex or no text, we are done
-            if (regex is null || string.IsNullOrWhiteSpace(text))
-            {
-                yield break;
-            }
-
-            // remove control chars
-            text = new string(text.Where(c => c == '\n' || c == '\t' || !char.IsControl(c)).ToArray());
-
-            // go through all the matches and pull out event info
-            MatchCollection matches = regex.Matches(text);
-            foreach (Match match in matches)
-            {
-                string userName = null;
-                string ipAddress = null;
-                string foundSource = null;
-                DateTime timestamp = default;
-
-                // check for a user name
-                if (string.IsNullOrWhiteSpace(userName))
-                {
-                    Group userNameGroup = match.Groups["username"];
-                    if (userNameGroup != null && userNameGroup.Success)
-                    {
-                        userName ??= userNameGroup.Value.Trim(regexTrimChars);
-                    }
-                    else
-                    {
-                        // sometimes user names are base64, like smtp logs
-                        userNameGroup = match.Groups["username_base64"];
-                        if (userNameGroup != null && userNameGroup.Success)
-                        {
-                            // attempt to decode base64 and get the actual user name
-                            var base64UserName = userNameGroup.Value;
-                            Span<byte> bytes = stackalloc byte[256];
-                            if (Convert.TryFromBase64String(base64UserName, bytes, out int bytesWritten))
-                            {
-                                var base64DecodedUserName = System.Text.Encoding.UTF8.GetString(bytes[..bytesWritten]);
-                                userName ??= base64DecodedUserName.Trim(regexTrimChars);
-                            }
-                        }
-                    }
-                }
-
-                // check for source
-                if (string.IsNullOrWhiteSpace(foundSource))
-                {
-                    Group sourceGroup = match.Groups["source"];
-                    if (sourceGroup != null && sourceGroup.Success)
-                    {
-                        foundSource = sourceGroup.Value.Trim(regexTrimChars);
-                    }
-                }
-
-                // check for groups with a custom source name
-                foreach (Group group in match.Groups)
-                {
-                    if (group.Success &&
-                        group.Name != null &&
-                        string.IsNullOrWhiteSpace(foundSource) &&
-                        group.Name.StartsWith(customSourcePrefix))
-                    {
-                        foundSource = group.Name[customSourcePrefix.Length..];
-                    }
-                }
-
-                // check for timestamp group
-                Group timestampGroup = match.Groups["timestamp"];
-                if (timestampGroup != null && timestampGroup.Success)
-                {
-                    string toParse = timestampGroup.Value.Trim(regexTrimChars);
-                    if (string.IsNullOrWhiteSpace(timestampFormat) ||
-                        !DateTime.TryParseExact(toParse, timestampFormat.Trim(), CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out timestamp))
-                    {
-                        DateTime.TryParse(toParse, CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out timestamp);
-                    }
-                }
-
-                // check if the regex had an ipadddress group
-                Group ipAddressGroup = match.Groups["ipaddress"];
-                if (ipAddressGroup is null || !ipAddressGroup.Success)
-                {
-                    ipAddressGroup = match.Groups["ipaddress_exact"];
-                }
-                if (ipAddressGroup != null && ipAddressGroup.Success && !string.IsNullOrWhiteSpace(ipAddressGroup.Value))
-                {
-                    string tempIPAddress = ipAddressGroup.Value.Trim();
-
-                    // in case of IP:PORT format, try a second time, stripping off the :PORT, saves having to do this in all
-                    //  the different ip regex.
-                    int lastColon = tempIPAddress.LastIndexOf(':');
-                    bool isValidIPAddress = IPAddress.TryParse(tempIPAddress, out IPAddress tmp);
-                    if (isValidIPAddress || (lastColon >= 0 && IPAddress.TryParse(tempIPAddress[..lastColon], out tmp)))
-                    {
-                        ipAddress = tmp.ToString();
-                    }
-
-                    // if we are parsing anything as ip address (including dns names)
-                    if (ipAddress is null &&
-                        dns != null &&
-                        ipAddressGroup.Name == "ipaddress" &&
-                        tempIPAddress != Environment.MachineName &&
-                        tempIPAddress != "-")
-                    {
-                        // Check Host by name
-                        Logger.Info("Parsing as IP failed for {0}, info: {1}. Checking dns...", tempIPAddress, info);
-                        try
-                        {
-                            IPAddress[] ipAddresses = dns.GetHostAddressesAsync(tempIPAddress).Sync();
-                            if (ipAddresses != null && ipAddresses.Length > 0)
-                            {
-                                ipAddress = ipAddresses.FirstOrDefault().ToString();
-                                Logger.Info("Dns result '{0}' = '{1}'", tempIPAddress, ipAddress);
-                                break;
-                            }
-                        }
-                        catch
-                        {
-                            Logger.Info("Parsing as dns failed '{0}'", tempIPAddress);
-                        }
-                    }
-                }
-
-                // see if there is a repeat indicator in the message
-                int repeatCount = ExtractRepeatCount(match, text);
-
-                // return an event for this match
-                yield return new IPAddressLogEvent(ipAddress, userName, foundSource, repeatCount, eventType, timestamp);
-            }
-        }
-
-        /// <summary>
         /// Write a new config file
         /// </summary>
         /// <param name="xml">Xml of the new config file</param>
@@ -290,7 +155,13 @@ namespace DigitalRuby.IPBanCore
         {
             // Ensure valid xml before writing the file
             XmlDocument doc = new();
-            using (XmlReader xmlReader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings { CheckCharacters = false }))
+            using (XmlReader xmlReader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings
+            {
+                CheckCharacters = false,
+                IgnoreComments = true,
+                IgnoreProcessingInstructions = true,
+                IgnoreWhitespace = true
+            }))
             {
                 doc.Load(xmlReader);
             }
@@ -330,8 +201,7 @@ namespace DigitalRuby.IPBanCore
                 GC.SuppressFinalize(this);
                 cycleLock.WaitAsync().Sync();
                 IsRunning = false;
-                GetUrl(UrlType.Stop).Sync();
-                cycleTimer?.Dispose();
+                GetUrl(UrlType.Stop, default).Sync();
                 IPBanDelegate?.Dispose();
                 IPBanDelegate = null;
                 lock (updaters)
@@ -343,6 +213,7 @@ namespace DigitalRuby.IPBanCore
                     updaters.Clear();
                 }
                 ipDB?.Dispose();
+                cycleLock.Dispose();
                 Logger.Warn("Stopped IPBan service");
             }
             finally
@@ -355,7 +226,7 @@ namespace DigitalRuby.IPBanCore
         /// Initialize and start the service
         /// </summary>
         /// <param name="cancelToken">Cancel token</param>
-        public async Task RunAsync(CancellationToken cancelToken)
+        public Task RunAsync(CancellationToken cancelToken)
         {
             CancelToken = cancelToken;
 
@@ -375,9 +246,15 @@ namespace DigitalRuby.IPBanCore
                     AddUpdater(new IPBanUnblockIPAddressesUpdater(this, Path.Combine(AppContext.BaseDirectory, "unban*.txt")));
                     AddUpdater(new IPBanBlockIPAddressesUpdater(this, Path.Combine(AppContext.BaseDirectory, "ban*.txt")));
                     AddUpdater(DnsList);
+                    AddUpdater(IPThreatUploader ??= new IPBanIPThreatUploader(this));
 
                     // start delegate if we have one
-                    IPBanDelegate?.Start(this);
+                    var delg = IPBanDelegate;
+                    if (delg is not null)
+                    {
+                        Logger.Debug("Starting service delegate");
+                        delg.Start(this);
+                    }
 
                     Logger.Warn("IPBan service started and initialized");
                     Logger.WriteLogLevels();
@@ -385,23 +262,7 @@ namespace DigitalRuby.IPBanCore
                     // setup cycle timer if needed
                     if (!ManualCycle)
                     {
-                        // create a new timer that goes off in 1 second, this will change as the config is
-                        // loaded and the cycle time becomes whatever is in the config
-                        cycleTimer = new Timer(async (_state) =>
-                        {
-                            try
-                            {
-                                await CycleTimerElapsed();
-                            }
-                            catch
-                            {
-                            }
-                        }, null, 1000, Timeout.Infinite);
-                    }
-
-                    if (!ManualCycle)
-                    {
-                        await Task.Delay(Timeout.Infinite, cancelToken);
+                        return RunCycleInBackground(cancelToken);
                     }
                 }
                 catch (Exception ex)
@@ -412,6 +273,8 @@ namespace DigitalRuby.IPBanCore
                     }
                 }
             }
+
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -499,7 +362,7 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Remove an updater
         /// </summary>
-        /// <param name="result">Updater</param>
+        /// <param name="updater">Updater</param>
         /// <returns>True if removed, false otherwise</returns>
         public bool RemoveUpdater(IUpdater updater)
         {
@@ -512,19 +375,23 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Run a task on the firewall queue
         /// </summary>
+        /// <typeparam name="T">Type of state</typeparam>
         /// <param name="action">Action to run</param>
-        public void RunFirewallTask(Func<CancellationToken, Task> action)
+        /// <param name="state">State</param>
+        public void RunFirewallTask<T>(Func<T, CancellationToken, Task> action, T state)
         {
-            if (MultiThreaded)
+            if (!IsRunning || CancelToken.IsCancellationRequested)
             {
-                if (!CancelToken.IsCancellationRequested)
-                {
-                    firewallTasks.Enqueue(action);
-                }
+                return;
+            }
+            else if (MultiThreaded)
+            {
+                var task = new FirewallTask(action, state, typeof(T), CancelToken);
+                firewallTasks.Enqueue(task);
             }
             else
             {
-                action.Invoke(CancelToken).Sync();
+                action.Invoke(state, CancelToken).Sync();
             }
         }
 
@@ -612,8 +479,8 @@ namespace DigitalRuby.IPBanCore
             service.Version = "1.1.1.1";
             service.RunAsync(CancellationToken.None).Sync();
             service.RunCycleAsync().Sync();
-            service.DB.Truncate(true);
-            service.Firewall.Truncate();
+            service.DB?.Truncate(true);
+            service.Firewall?.Truncate();
             return service;
         }
 

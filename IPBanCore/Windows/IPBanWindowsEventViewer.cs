@@ -115,6 +115,13 @@ namespace DigitalRuby.IPBanCore
                     // bad ip address
                     return null;
                 }
+                else if (info.Type == IPAddressEventType.SuccessfulLogin &&
+                    !string.IsNullOrWhiteSpace(info.UserName) &&
+                    info.UserName.Contains("anonymous", StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Debug("Ignoring anonymous login from windows event viewer: {0}", info.UserName);
+                    info.Type = IPAddressEventType.None;
+                }
                 service.AddIPAddressLogEvents(new IPAddressLogEvent[] { info });
                 Logger.Debug("Event viewer found: {0}, {1}, {2}, {3}", info.IPAddress, info.Source, info.UserName, info.Type);
             }
@@ -123,10 +130,12 @@ namespace DigitalRuby.IPBanCore
 
         private static bool FindSourceAndUserNameForInfo(IPAddressLogEvent info, XmlDocument doc)
         {
+            // if no ip, fail
             if (string.IsNullOrWhiteSpace(info.IPAddress))
             {
                 return false;
             }
+            // if no srouce, try a source node
             else if (string.IsNullOrWhiteSpace(info.Source))
             {
                 XmlNode sourceNode = doc.SelectSingleNode("//Source");
@@ -135,6 +144,8 @@ namespace DigitalRuby.IPBanCore
                     info.Source = sourceNode.InnerText.Trim();
                 }
             }
+
+            // if we don't have a user name, use standard target user name node
             if (string.IsNullOrWhiteSpace(info.UserName))
             {
                 XmlNode userNameNode = doc.SelectSingleNode("//Data[@Name='TargetUserName']");
@@ -142,6 +153,8 @@ namespace DigitalRuby.IPBanCore
                 {
                     userNameNode = doc.SelectSingleNode("//TargetUserName");
                 }
+
+                // if we have a user name node, use it
                 if (userNameNode != null)
                 {
                     info.UserName = userNameNode.InnerText.Trim();
@@ -170,10 +183,12 @@ namespace DigitalRuby.IPBanCore
             string source = null;
             string ipAddress = null;
             DateTime? timestamp = null;
+            string logData = null;
             int count = 1;
             bool mismatch;
             int failedLoginThreshold = 0;
             LogLevel logLevel = LogLevel.Warning;
+            IPAddressNotificationFlags notificationFlags = IPAddressNotificationFlags.None;
 
             // we must match on keywords
             foreach (EventViewerExpressionGroup group in service.Config.WindowsEventViewerGetGroupsMatchingKeywords(keywordsULONG))
@@ -217,7 +232,7 @@ namespace DigitalRuby.IPBanCore
                         foreach (XmlNode node in nodes)
                         {
                             // if we get a match, stop checking nodes
-                            info = IPBanService.GetIPAddressEventsFromRegex(expression.RegexObject,
+                            info = IPBanRegexParser.GetIPAddressEventsFromRegex(expression.RegexObject,
                                 node.InnerText.Trim(),
                                 info: group.Source,
                                 dns: service.DnsLookup).FirstOrDefault();
@@ -238,7 +253,9 @@ namespace DigitalRuby.IPBanCore
                                 source ??= info.Source;
                                 ipAddress ??= info.IPAddress;
                                 timestamp ??= info.Timestamp;
+                                logData ??= info.LogData;
                                 count = Math.Max(info.Count, count);
+                                notificationFlags = group.NotificationFlags;
                             }
                         }
                         if (mismatch)
@@ -248,6 +265,7 @@ namespace DigitalRuby.IPBanCore
                             userName = source = ipAddress = null;
                             timestamp = null;
                             successfulLogin = false;
+                            notificationFlags = IPAddressNotificationFlags.None;
                             count = 1;
                             break;
                         }
@@ -272,7 +290,8 @@ namespace DigitalRuby.IPBanCore
 
             IPAddressEventType type = (successfulLogin ? IPAddressEventType.SuccessfulLogin : IPAddressEventType.FailedLogin);
             return new IPAddressLogEvent(ipAddress, userName, source, count, type,
-                timestamp is null ? default : timestamp.Value, false, string.Empty, failedLoginThreshold, logLevel);
+                timestamp is null ? default : timestamp.Value, false, string.Empty,
+                failedLoginThreshold, logLevel, logData, notificationFlags);
         }
 
         private static XmlDocument ParseXml(string xml)
@@ -282,7 +301,13 @@ namespace DigitalRuby.IPBanCore
             {
                 Namespaces = false
             };
-            XmlReader outerReader = XmlReader.Create(reader, new XmlReaderSettings { CheckCharacters = false });
+            XmlReader outerReader = XmlReader.Create(reader, new XmlReaderSettings
+            {
+                CheckCharacters = false,
+                IgnoreComments = true,
+                IgnoreProcessingInstructions = true,
+                IgnoreWhitespace = true
+            });
             XmlDocument doc = new();
             doc.Load(outerReader);
 

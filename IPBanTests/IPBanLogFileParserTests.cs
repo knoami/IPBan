@@ -292,12 +292,12 @@ namespace DigitalRuby.IPBanTests
             IPBanIPAddressLogFileScannerOptions options = new()
             {
                 Dns = TestDnsLookup.Instance,
-                LoginHandler = this,
+                EventHandler = this,
                 Source = source,
                 PathAndMask = pathAndMask,
-                RegexFailure = IPBanConfig.ParseRegex(failureRegex, true),
+                RegexFailure = IPBanRegexParser.ParseRegex(failureRegex, true),
                 RegexFailureTimestampFormat = failureRegexTimestampFormat,
-                RegexSuccess = IPBanConfig.ParseRegex(successRegex, true),
+                RegexSuccess = IPBanRegexParser.ParseRegex(successRegex, true),
                 RegexSuccessTimestampFormat = successRegexTimestampFormat
             };
             LogFileScanner scanner = new IPBanLogFileScanner(options);

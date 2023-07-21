@@ -1,25 +1,33 @@
-IPBan Service
------
+# IPBan - Free software to block out attackers quickly and easily on Linux and Windows
+
 [![Github Sponsorship](.github/github_sponsor_btn.svg)](https://github.com/sponsors/jjxtra)
-
 [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=7EJ3K33SRLU9E)
-
 [![Build Status](https://dev.azure.com/DigitalRuby/DigitalRuby/_apis/build/status/DigitalRuby_IPBan?branchName=master)](https://dev.azure.com/DigitalRuby/DigitalRuby/_build/latest?definitionId=4&branchName=master)
 
-Get a discount on IPBan Pro by visiting <a href='https://ipban.com/upgrade-to-ipban-pro/'>https://ipban.com/upgrade-to-ipban-pro/</a>.
+## Helpful Links
 
-You can also visit the ipban discord at https://discord.gg/GRmbCcKFNR to chat with other IPBan users.
+- Get a discount on IPBan Pro by visiting <a href='https://ipban.com/upgrade-to-ipban-pro/'>https://ipban.com/upgrade-to-ipban-pro/</a>.
+- <a href='https://ipthreat.net/integrations/ipban'>Integrate IPBan with IPThreat</a>, a 100% free to use website and service of community submitted bad ip addresses.  Help make the Internet safer and join hundreds of other like minded users.
+- You can also visit the ipban discord at https://discord.gg/GRmbCcKFNR to chat with other IPBan users.
+- <a href="https://ipban.com/newsletter">Sign up for the IPBan Mailing List</a>
 
-<a href="https://ipban.com/newsletter">Sign up for the IPBan Mailing List</a>
+## Requirements
 
-**Requirements**
-- IPBan requires .NET 6 SDK to build and debug code. For an IDE, I suggest Visual Studio Community for Windows, or VS code for Linux. All are free. You can build a self contained executable to eliminate the need for dotnet core on the server machine, or just download the precompiled binaries.
+- IPBan free version requires .NET 6 SDK to build and debug code. For an IDE, I suggest Visual Studio Community for Windows, or VS code for Linux. All are free. You can build a self contained executable to eliminate the need for dotnet core on the server machine, or just download the precompiled binaries in releases.
 - Running and/or debugging code requires that you run your IDE or terminal as administrator or root.
-- Officially supported platforms: Windows 8.1 or newer (x86, x64), Windows Server 2012 or newer (x86, x64), Linux (Ubuntu, Debian, CentOS, RedHat x64). Windows Server 2008 will work with some tweaks, but it is basically at end of life, so no longer officially supported. Please note that for CentOS and RedHat Linux, you will need to manually install iptables and ipset using yum package manager.
-- Mac OS X not supported at this time.
+- Officially supported platforms:
+	- Windows 8.1 or newer (x86, x64)
+	- Windows Server 2012 or newer (x86, x64)
+	- Linux Ubuntu x64 (requires firewalld)
+	- Linux Debian x64 (requires firewalld)
+	- Linux CentOS x64 (requires firewalld)
+	- Linux RedHat x64 (requires firewalld)
+	- Mac OS X not supported at this time
 
-**Features**
-- Auto ban ip addresses on Windows and Linux by detecting failed logins from event viewer and/or log files. On Linux, SSH is watched by default. On Windows, RDP, OpenSSH, VNC, MySQL, SQL Server and Exchange are watched. More applications can easily be added via config file.
+## Features
+
+- Auto ban ip addresses by detecting failed logins from event viewer and/or log files. On Linux, SSH is watched by default. On Windows, RDP, OpenSSH, VNC, MySQL, SQL Server, Exchange, SmarterMail, MailEnable are watched. More applications can easily be added via config file.
+- Additional recipes for event viewer and log files are here: https://github.com/DigitalRuby/IPBan/tree/master/Recipes
 - Highly configurable, many options to determine failed login count threshold, time to ban, etc.
 - Make sure to check out the ipban.config file (formerly named DigitalRuby.IPBan.dll.config, see IPBanCore project) for configuration options, each option is documented with comments.
 - Banning happens basically instantly for event viewer. For log files, you can set how often it polls for changes.
@@ -28,16 +36,16 @@ You can also visit the ipban discord at https://discord.gg/GRmbCcKFNR to chat wi
 - Works with ipv4 and ipv6 on all platforms.
 - Please visit the wiki at https://github.com/DigitalRuby/IPBan/wiki for lots more documentation.
 
-**Download**
+ ## Download
 
 - Official download link is: https://github.com/DigitalRuby/IPBan/releases
 
-Install
-------
+## Install
 
-Please note that for IPBan Pro, you can find install instructions at https://ipban.com/Docs/Install. These install instructions here on github are for the free IPBan version.
+Please note that for IPBan Pro, you can find install instructions at https://ipban.com/ipban-pro-install-instructions/. These install instructions here on github are for the free IPBan version.
 
-**Windows**
+### **Windows**
+
 - IPBan is supported on Windows Server 2012 and Windows 8, or newer.
 - Easy one click install, open admin powershell and run:
 ```
@@ -46,36 +54,38 @@ Please note that for IPBan Pro, you can find install instructions at https://ipb
 Note: Powershell 5.1 or greater is required.
 
 ***Additional Windows Notes***
-- It is highly recommended to disable NTLM logins and only allow NTLM2 logins. Use secpol -> local policies -> security options -> network security restrict ntlm incoming ntlm traffic -> deny all accounts. You must disable NLA if you do this or you will be locked out of your machine (Control Panel -> System and Security -> System -> Advanced Settings -> Remote Tab (uncheck NLA)).
+- Windows Server 2012 and Windows 8 are nearing end of life. Upgrading to a newer Windows version is highly recommended. Support will drop for these Windows versions on January 1, 2024.
+- For Windows Server 2012 only: Disable NLA and enable NTLM. Otherwise ip addresses of remote connections do not show up in the event viewer. There is no known workaround that I know of to fix this, other than turning off NLA and enabling NTLM. Newer Windows (Server 2016+, Windows 10+) are not impacted by this problem.
 - Please ensure your server and clients are patched before making the above change: https://support.microsoft.com/en-us/help/4093492/credssp-updates-for-cve-2018-0886-march-13-2018. You need to manually edit group policy as specified in the link.
 ![](IPBan/img/WindowsCredSSP.png)
-- Instead of the above, you can try: local policy "Network Security -> LAN Manager authentication level" to "NTLMv2 response only/refuse LM and NTLM".
-- NLA is not supported with IPBan on Windows Server 2012 or older. You must use Windows Server 2016 or newer if you want NLA. Failed logins do not log properly with NLA on the older Windows editions, regardless of any settings, registry or group policy changes.
-- On Windows Small Business Server 2011 (and probably earlier) and Windows Server running Exchange, with installed PowerShell v.2 that does not know Unblock-File command, and newer version can’t be installed (as some scripts for managing OWA stop working correctly). Easier way is to manually unblock downloaded ZIP file and then unzip content.
 - On Windows Server running Exchange, it is impossible to disable NTLM (deny all clients in Security restrict ntlm incoming ntlm traffic) as then Outlook on client computers permanently asks users for entering username and password. To workaround this, set LAN Manager authenticating level in Security Options of Local Policies to "Send NTLMv2 response only. Refuse LM & NTLM". There is one small issue – when somebody tries to login with an undefined username, the log does not contain an IP address. Not sure why Microsoft can't log an ip address properly.
 - If using Exchange, disabling app pool 'MSExchangeServicesAppPool' can eliminate quite a lot of problems in the event viewer with ip addresses not being logged.
 
-**Linux**
+### Linux
 
-- IPBan is supported on most Linux operating systems.
-- Easy one click install:
+Easy one click install:
 ```
 sudo -i; bash <(wget -qO- https://raw.githubusercontent.com/DigitalRuby/IPBan/master/IPBanCore/Linux/Scripts/Install.sh)
 ```
 
-Other Information
-------
+## Other Information
+
 <a href="https://ipban.com/newsletter">Sign up for the IPBan Mailing List</a>
 
-**Analytics**
-
-To disable anonymously sending banned ip addresses to the global ipban database, set UseDefaultBannedIPAddressHandler to false in the config file.
-
-**Upgrade**
+## Upgrade
 
 Get a discount on IPBan Pro by visiting <a href='https://ipban.com/upgrade-to-ipban-pro/'>https://ipban.com/upgrade-to-ipban-pro/</a>.
 
-**Dontations**
+## Other Services
+
+<a href='https://ipthreat.net/integrations/ipban'>Integrate IPBan with IPThreat</a>, a 100% free to use website and service. Unlike some other sites and services that use community contributed data, IPThreat does not charge subscription fees.
+
+## Analytics
+
+To disable anonymously sending banned ip addresses to the global ipban database, set UseDefaultBannedIPAddressHandler to false in the config file.
+
+## Dontations
+
 If the free IPBan has helped you and you feel so inclined, please consider donating...
 
 [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=7EJ3K33SRLU9E)

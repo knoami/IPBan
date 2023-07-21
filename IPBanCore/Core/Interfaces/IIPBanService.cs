@@ -69,8 +69,9 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Manually run regular processing - useful if testing
         /// </summary>
+        /// <param name="cancelToken">Cancel token</param>
         /// <returns>Task</returns>
-        Task RunCycleAsync();
+        Task RunCycleAsync(CancellationToken cancelToken = default);
 
         /// <summary>
         /// Replace place-holders in url with values from this service
@@ -104,8 +105,10 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Run an action on the firewall queue, this will execute later
         /// </summary>
+        /// <typeparam name="T">Type of state</typeparam>
         /// <param name="action">Action to run on the firewall queue</param>
-        void RunFirewallTask(Func<CancellationToken, Task> action);
+        /// <param name="state">State</param>
+        void RunFirewallTask<T>(Func<T, CancellationToken, Task> action, T state);
 
         /// <summary>
         /// Whether the service is running
@@ -217,7 +220,9 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Update, do housekeeping, etc.
         /// </summary>
-        Task RunCycleAsync() => Task.CompletedTask;
+        /// <param name="cancelToken">Cancel token</param>
+        /// <returns>Task</returns>
+        Task RunCycleAsync(CancellationToken cancelToken) => Task.CompletedTask;
 
         /// <summary>
         /// Notify when an ip is banned
@@ -230,8 +235,10 @@ namespace DigitalRuby.IPBanCore
         /// <param name="osVersion">OS version</param>
         /// <param name="timestamp">Timestamp</param>
         /// <param name="banned">True if banned, false if unbanned</param>
+        /// <param name="notificationFlags">Notification flags</param>
         /// <returns>Task</returns>
-        Task IPAddressBanned(string ip, string source, string userName, string machineGuid, string osName, string osVersion, DateTime timestamp, bool banned) => Task.CompletedTask;
+        Task IPAddressBanned(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, DateTime timestamp, bool banned, IPAddressNotificationFlags notificationFlags) => Task.CompletedTask;
 
         /// <summary>
         /// Notify when a login attempt fails
@@ -244,8 +251,10 @@ namespace DigitalRuby.IPBanCore
         /// <param name="osVersion">OS version</param>
         /// <param name="count">Number of failures</param>
         /// <param name="timestamp">Timestamp</param>
+        /// <param name="notificationFlags">Notification flags</param>
         /// <returns>Task</returns>
-        Task LoginAttemptFailed(string ip, string source, string userName, string machineGuid, string osName, string osVersion, int count, DateTime timestamp) => Task.CompletedTask;
+        Task LoginAttemptFailed(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, int count, DateTime timestamp, IPAddressNotificationFlags notificationFlags) => Task.CompletedTask;
 
         /// <summary>
         /// Notify when a login attempt succeeds
@@ -258,13 +267,15 @@ namespace DigitalRuby.IPBanCore
         /// <param name="osVersion">OS version</param>
         /// <param name="count">Number of successes</param>
         /// <param name="timestamp">Timestamp</param>
+        /// <param name="notificationFlags">Notification flags</param>
         /// <returns>Task</returns>
-        Task LoginAttemptSucceeded(string ip, string source, string userName, string machineGuid, string osName, string osVersion, int count, DateTime timestamp) => Task.CompletedTask;
+        Task LoginAttemptSucceeded(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, int count, DateTime timestamp, IPAddressNotificationFlags notificationFlags) => Task.CompletedTask;
 
         /// <summary>
         /// Handle packet events
         /// </summary>
-        /// <param name="evt">Packet events</param>
+        /// <param name="events">Packet events</param>
         /// <returns>Task</returns>
         Task ProcessPacketEvents(IEnumerable<PacketEvent> events) => Task.CompletedTask;
     }

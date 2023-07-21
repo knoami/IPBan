@@ -36,10 +36,10 @@ using System.Threading.Tasks;
 namespace DigitalRuby.IPBanCore
 {
     /// <summary>
-    /// Linux firewall base class
+    /// Linux firewall base class using iptables
     /// </summary>
     [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All)]
-    public abstract class IPBanLinuxBaseFirewall : IPBanBaseFirewall
+    public abstract class IPBanLinuxBaseFirewallIPTables : IPBanBaseFirewall
     {
         /// <summary>
         /// Prefix put into log file for dropped packets
@@ -54,18 +54,34 @@ namespace DigitalRuby.IPBanCore
 
         private DateTime lastUpdate = IPBanService.UtcNow;
 
-        protected const int hashSize = 1024;
-        protected const int blockRuleMaxCount = 2097152;
-        protected const int allowRuleMaxCount = 8192;
-        protected const int blockRuleRangesMaxCount = 4194304;
-        protected const string hashTypeSingleIP = "ip";
-        protected const string hashTypeCidrMask = "net";
+        /// <summary>
+        /// Command for ip6tables
+        /// </summary>
         protected const string ip6TablesProcess = "ip6tables";
 
+        /// <summary>
+        /// Is this ipv4 or ipv6 firewall?
+        /// </summary>
         protected virtual bool IsIPV4 => true;
-        protected virtual string INetFamily => "inet";
+
+        /// <summary>
+        /// Inet family
+        /// </summary>
+        protected virtual string INetFamily => IPBanLinuxIPSetIPTables.INetFamilyIPV4;
+
+        /// <summary>
+        /// Suffix for set files
+        /// </summary>
         protected virtual string SetSuffix => ".set";
+
+        /// <summary>
+        /// Suffix for table files
+        /// </summary>
         protected virtual string TableSuffix => ".tbl";
+
+        /// <summary>
+        /// IP tables process
+        /// </summary>
         protected virtual string IpTablesProcess => "iptables";
 
         private readonly HashSet<string> allowRules = new(StringComparer.OrdinalIgnoreCase);
@@ -89,23 +105,10 @@ namespace DigitalRuby.IPBanCore
                 }
                 RunProcess(IpTablesProcess, true, "-F");
                 RunProcess(ip6TablesProcess, true, "-F");
-                RunProcess("ipset", true, "destroy");
+                IPBanLinuxIPSetIPTables.Reset();
             }
             catch
             {
-            }
-        }
-
-        private static void DeleteSet(string ruleName)
-        {
-            RunProcess("ipset", true, out IReadOnlyList<string> lines, "list -n");
-            foreach (string line in lines)
-            {
-                if (line.Trim().Equals(ruleName, StringComparison.OrdinalIgnoreCase))
-                {
-                    RunProcess("ipset", true, $"destroy {ruleName}");
-                    break;
-                }
             }
         }
 
@@ -115,7 +118,7 @@ namespace DigitalRuby.IPBanCore
             if (IsIPV4)
             {
                 string setFile = GetSetFileName();
-                RunProcess("ipset", true, $"save > \"{setFile}\"");
+                IPBanLinuxIPSetIPTables.SaveToFile(setFile);
             }
         }
 
@@ -125,10 +128,7 @@ namespace DigitalRuby.IPBanCore
             if (IsIPV4)
             {
                 string setFile = GetSetFileName();
-                if (File.Exists(setFile))
-                {
-                    RunProcess("ipset", true, $"restore < \"{setFile}\"");
-                }
+                IPBanLinuxIPSetIPTables.RestoreFromFile(setFile);
             }
         }
 
@@ -148,22 +148,47 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <summary>
+        /// Get table file name
+        /// </summary>
+        /// <returns>Table file name</returns>
         protected string GetTableFileName()
         {
             return Path.Combine(AppContext.BaseDirectory, "ipban" + TableSuffix);
         }
 
+        /// <summary>
+        /// Get set file name
+        /// </summary>
+        /// <returns>Set file name</returns>
         protected static string GetSetFileName()
         {
             return Path.Combine(AppContext.BaseDirectory, "ipban.set");
         }
 
-        protected static int RunProcess(string program, bool requireExitCode, string commandLine, params object[] args)
+        /// <summary>
+        /// Execute a process
+        /// </summary>
+        /// <param name="program">Program</param>
+        /// <param name="requireExitCode">Required exit code</param>
+        /// <param name="commandLine">Command line</param>
+        /// <param name="args">Args</param>
+        /// <returns>Exit code</returns>
+        public static int RunProcess(string program, bool requireExitCode, string commandLine, params object[] args)
         {
             return RunProcess(program, requireExitCode, out _, commandLine, args);
         }
 
-        protected static int RunProcess(string program, bool requireExitCode, out IReadOnlyList<string> lines, string commandLine, params object[] args)
+        /// <summary>
+        /// Execute a process
+        /// </summary>
+        /// <param name="program">Program</param>
+        /// <param name="requireExitCode">Required exit code</param>
+        /// <param name="lines">Lines of output</param>
+        /// <param name="commandLine">Command line</param>
+        /// <param name="args">Args</param>
+        /// <returns>Exit code</returns>
+        public static int RunProcess(string program, bool requireExitCode, out IReadOnlyList<string> lines, string commandLine, params object[] args)
         {
             commandLine = string.Format(commandLine, args);
             string bash = "-c \"" + program + " " + commandLine.Replace("\"", "\\\"") + "\"";
@@ -199,13 +224,17 @@ namespace DigitalRuby.IPBanCore
             return p.ExitCode;
         }
 
-        protected bool CreateOrUpdateRule(string ruleName, string action, string hashType, int maxCount, IEnumerable<PortRange> allowedPorts, CancellationToken cancelToken)
+        /// <summary>
+        /// Create (or update) a firewall rule
+        /// </summary>
+        /// <param name="ruleName">Rule name</param>
+        /// <param name="action">Action</param>
+        /// <param name="allowedPorts">Allowd ports</param>
+        /// <param name="cancelToken">Cancel token</param>
+        /// <returns>True if success</returns>
+        /// <exception cref="OperationCanceledException">Creation was cancelled</exception>
+        protected bool CreateOrUpdateRule(string ruleName, string action, IEnumerable<PortRange> allowedPorts, CancellationToken cancelToken)
         {
-            if (cancelToken.IsCancellationRequested)
-            {
-                throw new OperationCanceledException(cancelToken);
-            }
-
             // create or update the rule in iptables
             PortRange[] allowedPortsArray = allowedPorts?.ToArray();
             RunProcess(IpTablesProcess, true, out IReadOnlyList<string> lines, "-L --line-numbers");
@@ -215,7 +244,7 @@ namespace DigitalRuby.IPBanCore
 
             if (allowedPortsArray != null && allowedPortsArray.Length != 0)
             {
-                string portList = (block ? IPBanFirewallUtility.GetBlockPortRangeString(allowedPorts) :
+                string portList = (block ? IPBanFirewallUtility.GetPortRangeStringBlock(allowedPorts) :
                      IPBanFirewallUtility.GetPortRangeStringAllow(allowedPorts));
                 portString = " -m multiport -p tcp --dports " + portList.Replace('-', ':') + " "; // iptables uses ':' instead of '-' for range
             }
@@ -275,8 +304,18 @@ namespace DigitalRuby.IPBanCore
             return true;
         }
 
-        // deleteRule will drop the rule and matching set before creating the rule and set, use this is you don't care to update the rule and set in place
-        protected bool UpdateRule(string ruleName, string action, IEnumerable<string> ipAddresses, string hashType, int maxCount,
+        /// <summary>
+        /// Update a firewall rule
+        /// </summary>
+        /// <param name="ruleName">Rule name</param>
+        /// <param name="action">Action</param>
+        /// <param name="ipAddresses">IP addresses</param>
+        /// <param name="hashType">Hash type</param>
+        /// <param name="allowPorts">Allowed ports</param>
+        /// <param name="cancelToken">Cancel token</param>
+        /// <returns>True if success</returns>
+        /// <exception cref="OperationCanceledException">Update rule cancelled</exception>
+        protected bool UpdateRule(string ruleName, string action, IEnumerable<string> ipAddresses, string hashType,
             IEnumerable<PortRange> allowPorts, CancellationToken cancelToken)
         {
 
@@ -289,74 +328,13 @@ namespace DigitalRuby.IPBanCore
             string ipFileTemp = OSUtility.GetTempFileName();
             try
             {
-                // add and remove the appropriate ip addresses from the set
-                using (StreamWriter writer = File.CreateText(ipFileTemp))
-                {
-                    if (cancelToken.IsCancellationRequested)
-                    {
-                        throw new OperationCanceledException(cancelToken);
-                    }
-                    RunProcess("ipset", true, out IReadOnlyList<string> sets, "-L -n");
-                    if (sets.Contains(ruleName))
-                    {
-                        writer.WriteLine($"flush {ruleName}");// hash:{hashType} family {INetFamily} hashsize {hashSize} maxelem {maxCount} -exist");
-                    }
-                    writer.WriteLine($"create {ruleName} hash:{hashType} family {INetFamily} hashsize {hashSize} maxelem {maxCount} -exist");
-                    foreach (string ipAddress in ipAddresses)
-                    {
-                        if (cancelToken.IsCancellationRequested)
-                        {
-                            throw new OperationCanceledException(cancelToken);
-                        }
+                // create set file with full set info from passed values
+                IPBanLinuxIPSetIPTables.UpsertSetFile(ipFileTemp, ruleName, hashType, INetFamily, ipAddresses, cancelToken);
 
-                        if (IPAddressRange.TryParse(ipAddress, out IPAddressRange range) &&
-                            range.Begin.AddressFamily == addressFamily && range.End.AddressFamily == addressFamily)
-                        {
-                            try
-                            {
-                                if (hashType != hashTypeCidrMask || range.Single)
-                                {
-                                    writer.WriteLine($"add {ruleName} {range.Begin} -exist");
-                                }
-                                else if (range.GetPrefixLength(false) < 0)
-                                {
-                                    // attempt to write the ips in this range if the count is low enough
-                                    if (range.GetCount() < 128)
-                                    {
-                                        foreach (System.Net.IPAddress ip in range)
-                                        {
-                                            writer.WriteLine($"add {ruleName} {ip} -exist");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        Logger.Debug("Skipped writing non-cidr range {0} because of too many ips", range);
-                                    }
-                                }
-                                else
-                                {
-                                    writer.WriteLine($"add {ruleName} {range.ToCidrString()} -exist");
-                                }
-                            }
-                            catch
-                            {
-                                // ignore invalid cidr ranges
-                            }
-                        }
-                    }
-                }
-
-                if (cancelToken.IsCancellationRequested)
-                {
-                    throw new OperationCanceledException(cancelToken);
-                }
-                else
-                {
-                    // restore the set
-                    bool result = (RunProcess("ipset", true, $"restore < \"{ipFileTemp}\"") == 0);
-                    CreateOrUpdateRule(ruleName, action, hashType, maxCount, allowPorts, cancelToken);
-                    return result;
-                }
+                // restore the set fully
+                bool result = IPBanLinuxIPSetIPTables.RestoreFromFile(ipFileTemp);
+                CreateOrUpdateRule(ruleName, action, allowPorts, cancelToken);
+                return result;
             }
             finally
             {
@@ -373,9 +351,19 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        // deleteRule will drop the rule and matching set before creating the rule and set, use this is you don't care to update the rule and set in place
+        /// <summary>
+        /// Update a firewall rule
+        /// </summary>
+        /// <param name="ruleName">Rule name</param>
+        /// <param name="action">Action</param>
+        /// <param name="deltas">Delta IP addresses</param>
+        /// <param name="hashType">Hash type</param>
+        /// <param name="allowPorts">Allowed ports</param>
+        /// <param name="cancelToken">Cancel token</param>
+        /// <returns>True if success</returns>
+        /// <exception cref="OperationCanceledException">Update rule cancelled</exception>
         protected bool UpdateRuleDelta(string ruleName, string action, IEnumerable<IPBanFirewallIPAddressDelta> deltas, string hashType,
-            int maxCount, bool deleteRule, IEnumerable<PortRange> allowPorts, CancellationToken cancelToken)
+            IEnumerable<PortRange> allowPorts, CancellationToken cancelToken)
         {
 
 #if ENABLE_FIREWALL_PROFILING
@@ -387,68 +375,13 @@ namespace DigitalRuby.IPBanCore
             string ipFileTemp = OSUtility.GetTempFileName();
             try
             {
-                // add and remove the appropriate ip addresses from the set
-                using (StreamWriter writer = File.CreateText(ipFileTemp))
-                {
-                    if (cancelToken.IsCancellationRequested)
-                    {
-                        throw new OperationCanceledException(cancelToken);
-                    }
-                    writer.WriteLine($"create {ruleName} hash:{hashType} family {INetFamily} hashsize {hashSize} maxelem {maxCount} -exist");
-                    foreach (IPBanFirewallIPAddressDelta delta in deltas)
-                    {
-                        if (cancelToken.IsCancellationRequested)
-                        {
-                            throw new OperationCanceledException(cancelToken);
-                        }
+                // create set file with deltas
+                IPBanLinuxIPSetIPTables.UpsertSetFileDelta(ipFileTemp, ruleName, hashType, INetFamily, deltas, cancelToken);
 
-                        if (IPAddressRange.TryParse(delta.IPAddress, out IPAddressRange range) &&
-                            range.Begin.AddressFamily == addressFamily && range.End.AddressFamily == addressFamily)
-                        {
-                            try
-                            {
-                                if (delta.Added)
-                                {
-                                    if (range.Single)
-                                    {
-                                        writer.WriteLine($"add {ruleName} {range.Begin} -exist");
-                                    }
-                                    else
-                                    {
-                                        writer.WriteLine($"add {ruleName} {range.ToCidrString()} -exist");
-                                    }
-                                }
-                                else
-                                {
-                                    if (range.Single)
-                                    {
-                                        writer.WriteLine($"del {ruleName} {range.Begin} -exist");
-                                    }
-                                    else
-                                    {
-                                        writer.WriteLine($"del {ruleName} {range.ToCidrString()} -exist");
-                                    }
-                                }
-                            }
-                            catch
-                            {
-                                // ignore invalid cidr ranges
-                            }
-                        }
-                    }
-                }
-
-                if (cancelToken.IsCancellationRequested)
-                {
-                    throw new OperationCanceledException(cancelToken);
-                }
-                else
-                {
-                    // restore the deltas into the existing set
-                    bool result = (RunProcess("ipset", true, $"restore < \"{ipFileTemp}\"") == 0);
-                    CreateOrUpdateRule(ruleName, action, hashType, maxCount, allowPorts, cancelToken);
-                    return result;
-                }
+                // restore the deltas into the existing set
+                bool result = IPBanLinuxIPSetIPTables.RestoreFromFile(ipFileTemp);
+                CreateOrUpdateRule(ruleName, action, allowPorts, cancelToken);
+                return result;
             }
             finally
             {
@@ -465,6 +398,7 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <inheritdoc />
         protected override void OnDispose()
         {
             base.OnDispose();
@@ -473,24 +407,19 @@ namespace DigitalRuby.IPBanCore
             SaveTableToDisk();
         }
 
-        public IPBanLinuxBaseFirewall(string rulePrefix = null) : base(rulePrefix)
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="rulePrefix">Rule prefix</param>
+        public IPBanLinuxBaseFirewallIPTables(string rulePrefix = null) : base(rulePrefix)
         {
-            /*
-             // restore existing sets from disk
-             RunProcess("ipset", true, out IReadOnlyList<string> existingSets, $"-L | grep ^Name:");
-             foreach (string set in existingSets.Where(s => s.StartsWith("Name: " + RulePrefix, StringComparison.OrdinalIgnoreCase))
-                 .Select(s => s.Substring("Name: ".Length)))
-             {
-                 RunProcess("ipset", true, $"flush {set}");
-             }
-            */
-
             addressFamily = (IsIPV4 ? AddressFamily.InterNetwork : AddressFamily.InterNetworkV6);
             allowRuleName = AllowRulePrefix + "0";
             RestoreSetsFromDisk();
             RestoreTablesFromDisk();
         }
 
+        /// <inheritdoc />
         public override Task Update(CancellationToken cancelToken)
         {
             base.Update(cancelToken);
@@ -506,6 +435,7 @@ namespace DigitalRuby.IPBanCore
             return Task.CompletedTask;
         }
 
+        /// <inheritdoc />
         public override IEnumerable<string> GetRuleNames(string ruleNamePrefix = null)
         {
             const string setText = " match-set ";
@@ -534,6 +464,7 @@ namespace DigitalRuby.IPBanCore
             return allowRules.Contains(ruleName);
         }
 
+        /// <inheritdoc />
         public override bool DeleteRule(string ruleName)
         {
             RunProcess(IpTablesProcess, true, out IReadOnlyList<string> lines, "-L --line-numbers");
@@ -553,7 +484,7 @@ namespace DigitalRuby.IPBanCore
                     SaveTableToDisk();
 
                     // remove the set
-                    DeleteSet(ruleName);
+                    IPBanLinuxIPSetIPTables.DeleteSet(ruleName);
 
                     return true;
                 }
@@ -561,12 +492,13 @@ namespace DigitalRuby.IPBanCore
             return false;
         }
 
+        /// <inheritdoc />
         public override Task<bool> BlockIPAddresses(string ruleNamePrefix, IEnumerable<string> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             try
             {
                 string ruleName = (string.IsNullOrWhiteSpace(ruleNamePrefix) ? BlockRulePrefix : RulePrefix + ruleNamePrefix);
-                return Task.FromResult(UpdateRule(ruleName, dropAction, ipAddresses, hashTypeSingleIP, blockRuleMaxCount, allowedPorts, cancelToken));
+                return Task.FromResult(UpdateRule(ruleName, dropAction, ipAddresses, IPBanLinuxIPSetIPTables.HashTypeSingleIP, allowedPorts, cancelToken));
             }
             catch (Exception ex)
             {
@@ -578,12 +510,13 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <inheritdoc />
         public override Task<bool> BlockIPAddressesDelta(string ruleNamePrefix, IEnumerable<IPBanFirewallIPAddressDelta> deltas, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             try
             {
                 string ruleName = (string.IsNullOrWhiteSpace(ruleNamePrefix) ? BlockRulePrefix : RulePrefix + ruleNamePrefix);
-                return Task.FromResult(UpdateRuleDelta(ruleName, dropAction, deltas, hashTypeSingleIP, blockRuleMaxCount, false, allowedPorts, cancelToken));
+                return Task.FromResult(UpdateRuleDelta(ruleName, dropAction, deltas, IPBanLinuxIPSetIPTables.HashTypeSingleIP, allowedPorts, cancelToken));
             }
             catch (Exception ex)
             {
@@ -595,13 +528,15 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <inheritdoc />
         public override Task<bool> BlockIPAddresses(string ruleNamePrefix, IEnumerable<IPAddressRange> ranges, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             ruleNamePrefix.ThrowIfNullOrWhiteSpace();
 
             try
             {
-                return Task.FromResult(UpdateRule(RulePrefix + ruleNamePrefix, dropAction, ranges.Select(r => r.ToCidrString()), hashTypeCidrMask, blockRuleRangesMaxCount, allowedPorts, cancelToken));
+                return Task.FromResult(UpdateRule(RulePrefix + ruleNamePrefix, dropAction, ranges.Select(r => r.ToCidrString()),
+                    IPBanLinuxIPSetIPTables.HashTypeNetwork, allowedPorts, cancelToken));
             }
             catch (Exception ex)
             {
@@ -613,11 +548,12 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <inheritdoc />
         public override Task<bool> AllowIPAddresses(IEnumerable<string> ipAddresses, CancellationToken cancelToken = default)
         {
             try
             {
-                return Task.FromResult(UpdateRule(allowRuleName, acceptAction, ipAddresses, hashTypeSingleIP, allowRuleMaxCount, null, cancelToken));
+                return Task.FromResult(UpdateRule(allowRuleName, acceptAction, ipAddresses, IPBanLinuxIPSetIPTables.HashTypeSingleIP, null, cancelToken));
             }
             catch (Exception ex)
             {
@@ -629,6 +565,7 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <inheritdoc />
         public override Task<bool> AllowIPAddresses(string ruleNamePrefix, IEnumerable<IPAddressRange> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             try
@@ -636,7 +573,8 @@ namespace DigitalRuby.IPBanCore
                 ruleNamePrefix.ThrowIfNullOrWhiteSpace();
                 string ruleName = RulePrefix + ruleNamePrefix;
                 allowRules.Add(ruleName);
-                return Task.FromResult(UpdateRule(ruleName, acceptAction, ipAddresses.Select(r => r.ToCidrString()), hashTypeCidrMask, blockRuleMaxCount, allowedPorts, cancelToken));
+                return Task.FromResult(UpdateRule(ruleName, acceptAction, ipAddresses.Select(r => r.ToCidrString()),
+                    IPBanLinuxIPSetIPTables.HashTypeNetwork, allowedPorts, cancelToken));
             }
             catch (Exception ex)
             {
@@ -648,42 +586,28 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <inheritdoc />
         public override IEnumerable<IPAddressRange> EnumerateIPAddresses(string ruleNamePrefix = null)
         {
-            string tempFile = OSUtility.GetTempFileName();
-            try
-            {
-                string prefix = RulePrefix + (ruleNamePrefix ?? string.Empty);
-                RunProcess("ipset", true, $"save > \"{tempFile}\"");
-                bool inSet = false;
-                foreach (string line in File.ReadLines(tempFile))
-                {
-                    string[] pieces = line.Split(' ');
-                    if (pieces.Length > 1 && pieces[0].Equals("create", StringComparison.OrdinalIgnoreCase))
-                    {
-                        inSet = (pieces[1].StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-                    }
-                    else if (inSet && pieces.Length > 2 && pieces[0] == "add")
-                    {
-                        yield return IPAddressRange.Parse(pieces[2]);
-                    }
-                }
-            }
-            finally
-            {
-                ExtensionMethods.FileDeleteWithRetry(tempFile);
-            }
+            string prefix = RulePrefix + (ruleNamePrefix ?? string.Empty);
+            return IPBanLinuxIPSetIPTables
+                .EnumerateSets()
+                .Where(s => s.SetName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.Range);
         }
 
+        /// <inheritdoc />
         public override bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = -1)
         {
-            if (System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipObj))
+            if (!IsIPAddressAllowed(ipAddress) &&
+                System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipObj))
             {
-                foreach (var ip in EnumerateBannedIPAddresses())
+                foreach (var item in IPBanLinuxIPSetIPTables.EnumerateSets()
+                    .Where(s => !allowRules.Contains(s.SetName)))
                 {
-                    if (IPAddressRange.TryParse(ip, out IPAddressRange range) && range.Contains(ipObj))
+                    if (item.Range.Contains(ipObj))
                     {
-                        ruleName = lastBlockRuleEnumerated;
+                        ruleName = item.SetName;
                         return true;
                     }
                 }
@@ -692,13 +616,15 @@ namespace DigitalRuby.IPBanCore
             return false;
         }
 
+        /// <inheritdoc />
         public override bool IsIPAddressAllowed(string ipAddress, int port = -1)
         {
             if (System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipObj))
             {
-                foreach (var ip in EnumerateAllowedIPAddresses())
+                foreach (var item in IPBanLinuxIPSetIPTables.EnumerateSets()
+                    .Where(s => allowRules.Contains(s.SetName)))
                 {
-                    if (IPAddressRange.TryParse(ip, out IPAddressRange range) && range.Contains(ipObj))
+                    if (item.Range.Contains(ipObj))
                     {
                         return true;
                     }
@@ -707,69 +633,26 @@ namespace DigitalRuby.IPBanCore
             return false;
         }
 
-        private string lastBlockRuleEnumerated;
+
+        /// <inheritdoc />
         public override IEnumerable<string> EnumerateBannedIPAddresses()
         {
-            string tempFile = OSUtility.GetTempFileName();
-            lastBlockRuleEnumerated = null;
-            try
-            {
-                RunProcess("ipset", true, $"save > \"{tempFile}\"");
-                bool inBlockRule = true;
-                foreach (string line in File.ReadLines(tempFile))
-                {
-                    string[] pieces = line.Split(' ');
-                    if (pieces.Length > 1 && pieces[0].Equals("create", StringComparison.OrdinalIgnoreCase))
-                    {
-                        inBlockRule = (!pieces[1].Equals(allowRuleName) &&
-                            (pieces[1].StartsWith(BlockRulePrefix) || pieces[1].StartsWith(RulePrefix + "6_Block_")));
-                        if (inBlockRule)
-                        {
-                            lastBlockRuleEnumerated = pieces[1];
-                        }
-                        else
-                        {
-                            lastBlockRuleEnumerated = null;
-                        }
-                    }
-                    else if (inBlockRule && pieces.Length > 2 && pieces[0] == "add")
-                    {
-                        yield return pieces[2];
-                    }
-                }
-            }
-            finally
-            {
-                ExtensionMethods.FileDeleteWithRetry(tempFile);
-            }
+            return IPBanLinuxIPSetIPTables
+                .EnumerateSets()
+                .Where(s => !allowRules.Contains(s.SetName))
+                .Select(s => s.Range.ToString());
         }
 
+        /// <inheritdoc />
         public override IEnumerable<string> EnumerateAllowedIPAddresses()
         {
-            string tempFile = OSUtility.GetTempFileName();
-            try
-            {
-                RunProcess("ipset", true, $"save > \"{tempFile}\"");
-                bool inAllow = true;
-                foreach (string line in File.ReadLines(tempFile))
-                {
-                    string[] pieces = line.Split(' ');
-                    if (pieces.Length > 1 && pieces[0].Equals("create", StringComparison.OrdinalIgnoreCase))
-                    {
-                        inAllow = (pieces[1].Equals(allowRuleName));
-                    }
-                    else if (inAllow && pieces.Length > 2 && pieces[0] == "add")
-                    {
-                        yield return pieces[2];
-                    }
-                }
-            }
-            finally
-            {
-                ExtensionMethods.FileDeleteWithRetry(tempFile);
-            }
+            return IPBanLinuxIPSetIPTables
+                .EnumerateSets()
+                .Where(s => allowRules.Contains(s.SetName))
+                .Select(s => s.Range.ToString());
         }
 
+        /// <inheritdoc />
         public override void Truncate()
         {
             RemoveAllTablesAndSets();

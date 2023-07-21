@@ -34,12 +34,35 @@ namespace DigitalRuby.IPBanCore
 {
     public partial class IPBanService
     {
-        protected enum UrlType
+        /// <summary>
+        /// Url type
+        /// </summary>
+        public enum UrlType
         {
+            /// <summary>
+            /// Start
+            /// </summary>
             Start,
+
+            /// <summary>
+            /// Update
+            /// </summary>
             Update,
+
+            /// <summary>
+            /// Stop
+            /// </summary>
             Stop,
-            Config
+
+            /// <summary>
+            /// Config
+            /// </summary>
+            Config,
+
+            /// <summary>
+            /// Connect
+            /// </summary>
+            Connect
         }
     }
 
@@ -87,10 +110,10 @@ namespace DigitalRuby.IPBanCore
     }
 
     /// <summary>
-    /// IP address event flags
+    /// IP address notification flags
     /// </summary>
     [Flags]
-    public enum IPAddressEventFlags
+    public enum IPAddressNotificationFlags
     {
         /// <summary>
         /// No event
@@ -120,6 +143,31 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Notify whois for domains
         /// </summary>
-        WhoIs = 16
+        WhoIs = 16,
+
+        /// <summary>
+        /// Send daily report of all ip addresses
+        /// </summary>
+        DailyReport = 32,
+
+        /// <summary>
+        /// Send weekly report of all ip addresses
+        /// </summary>
+        WeeklyReport = 64,
+
+        /// <summary>
+        /// Send monthly report of all ip addresses
+        /// </summary>
+        MonthlyReport = 128,
+
+        /// <summary>
+        /// Successful login to web admin
+        /// </summary>
+        SuccessfulWebAdminLogin = 256,
+
+        /// <summary>
+        /// All flags
+        /// </summary>
+        All = SuccessfulLogin | BlockedIPAddress | UnblockedIPAddress | FailedLogin | WhoIs | DailyReport | WeeklyReport | MonthlyReport | SuccessfulWebAdminLogin
     }
 }

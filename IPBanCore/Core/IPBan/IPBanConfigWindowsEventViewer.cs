@@ -46,6 +46,8 @@ namespace DigitalRuby.IPBanCore
         /// The regex, created from Regex property
         /// </summary>
         [XmlIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore]
         public Regex RegexObject { get; private set; }
 
         private string xpath;
@@ -77,14 +79,15 @@ namespace DigitalRuby.IPBanCore
         public XmlCData Regex
         {
             get => regex;
-            set => RegexObject = IPBanConfig.ParseRegex(regex = value);
+            set => RegexObject = IPBanRegexParser.ParseRegex(regex = value);
         }
 
         /// <summary>
         /// Whether the xpath is optional
         /// </summary>
-        [JsonIgnore]
         [XmlIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore]
         public bool XPathIsOptional { get; private set; }
     }
 
@@ -107,15 +110,17 @@ namespace DigitalRuby.IPBanCore
         /// Keywords as a ULONG
         /// </summary>
         [XmlIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore]
         public ulong KeywordsULONG { get; private set; }
 
         /// <summary>
-        /// Minimum Windows major version - see https://msdn.microsoft.com/en-us/library/windows/desktop/ms724832%28v=vs.85%29.aspx?f=255&MSPPError=-2147217396
+        /// Minimum Windows major version - see https://msdn.microsoft.com/en-us/library/windows/desktop/ms724832%28v=vs.85%29.aspx?f=255&amp;MSPPError=-2147217396
         /// </summary>
         public int MinimumWindowsMajorVersion { get; set; } = 6;
 
         /// <summary>
-        /// Minimum Windows minor version - see https://msdn.microsoft.com/en-us/library/windows/desktop/ms724832%28v=vs.85%29.aspx?f=255&MSPPError=-2147217396
+        /// Minimum Windows minor version - see https://msdn.microsoft.com/en-us/library/windows/desktop/ms724832%28v=vs.85%29.aspx?f=255&amp;MSPPError=-2147217396
         /// </summary>
         public int MinimumWindowsMinorVersion { get; set; }
 
@@ -156,6 +161,11 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
+        /// <summary>
+        /// Append event viewer query to string builder
+        /// </summary>
+        /// <param name="builder">String builder</param>
+        /// <param name="id">Id</param>
         public void AppendQueryString(StringBuilder builder, int id = 1)
         {
             ulong keywordsDecimal = ulong.Parse(Keywords[2..], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
@@ -170,6 +180,9 @@ namespace DigitalRuby.IPBanCore
             builder.Append("))]]</Select></Query>");
         }
 
+        /// <summary>
+        /// Use ExpressionsText to set the event viewer expressions
+        /// </summary>
         public void SetExpressionsFromExpressionsText()
         {
             if (ExpressionsText is null)
@@ -178,7 +191,7 @@ namespace DigitalRuby.IPBanCore
             }
 
             Expressions.Clear();
-            string[] lines = IPBanConfig.CleanMultilineString(ExpressionsText).Split('\n');
+            string[] lines = IPBanRegexParser.CleanMultilineString(ExpressionsText).Split('\n');
             string line;
             EventViewerExpression currentExpression = null;
             for (int i = 0; i < lines.Length; i++)
@@ -212,6 +225,9 @@ namespace DigitalRuby.IPBanCore
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string Path { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Event viewer expressions
+        /// </summary>
         [DisplayFormat(ConvertEmptyStringToNull = false)]
         [Required(AllowEmptyStrings = true)]
         [LocalizedDisplayName(nameof(IPBanResources.EventViewerExpressions))]
@@ -225,6 +241,8 @@ namespace DigitalRuby.IPBanCore
         /// The format is xpath (//*), newline, and then regex, newline, repeated.
         /// </summary>
         [XmlIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore]
         [DisplayFormat(ConvertEmptyStringToNull = false)]
         [Required(AllowEmptyStrings = true)]
         [LocalizedDisplayName(nameof(IPBanResources.EventViewerExpressions))]
@@ -248,6 +266,15 @@ namespace DigitalRuby.IPBanCore
         [LocalizedDisplayName(nameof(IPBanResources.LogLevel))]
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public LogLevel LogLevel { get; set; } = LogLevel.Warning;
+
+        /// <summary>
+        /// Notification flags
+        /// </summary>
+        [DisplayFormat(ConvertEmptyStringToNull = false)]
+        [Required(AllowEmptyStrings = true)]
+        [LocalizedDisplayName(nameof(IPBanResources.DisableNotificationFlags))]
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public IPAddressNotificationFlags NotificationFlags { get; set; } = IPAddressNotificationFlags.None;
     }
 
     /// <summary>
@@ -255,6 +282,9 @@ namespace DigitalRuby.IPBanCore
     /// </summary>
     public class EventViewerExpressions
     {
+        /// <summary>
+        /// Event viewer groups
+        /// </summary>
         [XmlArray("Groups")]
         [XmlArrayItem("Group")]
         public List<EventViewerExpressionGroup> Groups { get; set; } = new List<EventViewerExpressionGroup>();

@@ -39,6 +39,7 @@ using System.Security;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
@@ -288,7 +289,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Bytes</returns>
         public static byte[] ToBytesFromHex(this string s)
         {
-            byte[] bytes = new byte[s.Length / 2];
+            var bytes = new byte[16];
             for (int i = 0; i < s.Length; i += 2)
             {
                 bytes[i / 2] = Convert.ToByte(s.Substring(i, 2), 16);
@@ -317,7 +318,7 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Get a UTC date time from a unix epoch in milliseconds
         /// </summary>
-        /// <param name="unixTimeStampSeconds">Unix epoch in milliseconds</param>
+        /// <param name="unixTimeStampMilliseconds">Unix epoch in milliseconds</param>
         /// <returns>UTC DateTime</returns>
         public static DateTime ToDateTimeUnixMilliseconds(this double unixTimeStampMilliseconds)
         {
@@ -327,7 +328,7 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Get a UTC date time from a unix epoch in milliseconds
         /// </summary>
-        /// <param name="unixTimeStampSeconds">Unix epoch in milliseconds</param>
+        /// <param name="unixTimeStampMilliseconds">Unix epoch in milliseconds</param>
         /// <returns>UTC DateTime</returns>
         public static DateTime ToDateTimeUnixMilliseconds(this long unixTimeStampMilliseconds)
         {
@@ -700,12 +701,12 @@ namespace DigitalRuby.IPBanCore
         public static unsafe IPAddress ToIPAddressRaw(this UInt128 value)
         {
             byte* bytes = (byte*)&value;
-            byte[] managedBytes = new byte[16];
-            for (int i = 0; i < managedBytes.Length; i++)
+            using var managedBytes = BytePool.Rent(16);
+            for (int i = 0; i < 16; i++)
             {
                 managedBytes[i] = bytes[i];
             }
-            return new IPAddress(managedBytes);
+            return new IPAddress(managedBytes.AsSpan());
         }
 
         /// <summary>
@@ -729,14 +730,15 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         /// <param name="elem">Element</param>
         /// <param name="name">Property name</param>
+        /// <param name="defaultValue">Default if not found</param>
         /// <returns>String or null if not found</returns>
-        public static string GetString(this System.Text.Json.JsonElement elem, string name)
+        public static string GetString(this System.Text.Json.JsonElement elem, string name, string defaultValue = null)
         {
             if (elem.TryGetProperty(name, out var elem2))
             {
                 return elem2.ToString();
             }
-            return null;
+            return defaultValue;
         }
 
         /// <summary>
@@ -834,6 +836,47 @@ namespace DigitalRuby.IPBanCore
                 return max;
             }
             return val;
+        }
+
+        /// <summary>
+        /// Deserialize an object from string json
+        /// </summary>
+        /// <param name="json">Json</param>
+        /// <returns>Object</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
+        public static T DeserializeJson<T>(string json)
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<T>(json, options: jsonOptions);
+        }
+
+        /// <summary>
+        /// Deserialize an object from byte[] json
+        /// </summary>
+        /// <param name="json">Json</param>
+        /// <returns>Object or default of T if exception</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
+        public static T DeserializeJson<T>(byte[] json)
+        {
+            try
+            {
+                var utf8JsonReader = new Utf8JsonReader(json);
+                return System.Text.Json.JsonSerializer.Deserialize<T>(ref utf8JsonReader, jsonOptions);
+            }
+            catch
+            {
+                return default;
+            }
+        }
+
+        /// <summary>
+        /// Serialize an object to utf8 json
+        /// </summary>
+        /// <param name="obj">Object</param>
+        /// <returns>String json</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
+        public static string SerializeJson(this object obj)
+        {
+            return System.Text.Json.JsonSerializer.Serialize(obj, options: jsonOptions);
         }
 
         /// <summary>
@@ -995,6 +1038,10 @@ namespace DigitalRuby.IPBanCore
 
 #pragma warning disable CA1401
 
+        /// <summary>
+        /// Get user id on Linux
+        /// </summary>
+        /// <returns>Uid</returns>
         [DllImport("libc")]
         public static extern uint getuid();
 
@@ -1288,7 +1335,6 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Wait for value tasks to complete
         /// </summary>
-        /// <typeparam name="T">Type of value task</typeparam>
         /// <param name="tasks">Value tasks</param>
         /// <returns>Task that finishes when all value tasks have finished</returns>
         public static Task WhenAll(this IEnumerable<ValueTask> tasks)
@@ -1415,6 +1461,141 @@ namespace DigitalRuby.IPBanCore
                 return ip.MapToIPv4();
             }
             return ip;
+        }
+
+        /// <summary>
+        /// Remove internal ip address ranges from the specified range
+        /// </summary>
+        /// <param name="range">IP address range</param>
+        /// <returns>IP address ranges without any internal ip address ranges, will just contain range if no internal ip
+        /// addresses are in range</returns>
+        public static IEnumerable<IPAddressRange> RemoveInternalRanges(this IPAddressRange range)
+        {
+            List<IPAddressRange> results = new();
+            var internalRanges = (range.Begin.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? NetworkUtility.InternalRangesIPV4 : NetworkUtility.InternalRangesIPV6);
+            foreach (var internalRange in internalRanges)
+            {
+                // internal ranges are sorted so we can make assumptions that the left most non intersecting part of range is good
+                if (range.Chomp(internalRange, out IPAddressRange left, out IPAddressRange right))
+                {
+                    if (right is null)
+                    {
+                        range = left;
+
+                        // all done!
+                        break;
+                    }
+                    else if (left is null)
+                    {
+                        // proceed with reduced range
+                        range = right;
+                    }
+                    else
+                    {
+                        // left result is sanitized of internal ips, still need to sanitize the right
+                        results.Add(left);
+                        range = right;
+                    }
+                }
+            }
+            if (range is not null)
+            {
+                results.Add(range);
+            }
+            return results;
+        }
+
+        /// <summary>
+        /// Combine IPAddressRange instances that are consecutive, ranges are assumed to be sorted
+        /// </summary>
+        /// <param name="ranges">Ranges</param>
+        /// <returns>Combined ranges</returns>
+        public static IEnumerable<IPAddressRange> Combine(this IEnumerable<IPAddressRange> ranges)
+        {
+            using var e = ranges.GetEnumerator();
+            IPAddressRange current = null;
+            IPAddressRange next;
+            if (e.MoveNext())
+            {
+                current = e.Current;
+            }
+            while (e.MoveNext())
+            {
+                next = e.Current;
+                if (current.TryCombine(next, out IPAddressRange combined))
+                {
+                    current = combined;
+                }
+                else
+                {
+                    yield return current;
+                    current = next;
+                }
+            }
+            if (current is not null)
+            {
+                yield return current;
+            }
+        }
+
+        /// <summary>
+        /// Invert ip address ranges, the result is ranges that are every other ip address range except the provided ranges
+        /// </summary>
+        /// <param name="ranges">Ranges</param>
+        /// <returns>Inverted ip address ranges, in sorted order and combined where needed</returns>
+        public static IEnumerable<IPAddressRange> Invert(this IEnumerable<IPAddressRange> ranges)
+        {
+            // remove duplicates, make sure list is sorted
+            var sortedRanges = ranges.Distinct().OrderBy(r => r).ToArray();
+
+            static IEnumerable<IPAddressRange> ProcessRanges(IEnumerable<IPAddressRange> _ranges,
+                System.Net.IPAddress startPrev,
+                System.Net.IPAddress lastPrev,
+                System.Net.Sockets.AddressFamily addressFamily)
+            {
+                IPAddressRange leftGap = null;
+                System.Net.IPAddress endPrev = null;
+                foreach (var range in Combine(_ranges.Where(r => r.Begin.AddressFamily == addressFamily).SelectMany(r => r.RemoveInternalRanges())))
+                {
+                    // left gap
+                    if (range.Begin.TryDecrement(out endPrev) &&
+                        startPrev.IsIPv4MappedToIPv6 == endPrev.IsIPv4MappedToIPv6)
+                    {
+                        leftGap = new IPAddressRange(startPrev, endPrev);
+                        foreach (var scrubbedIP in RemoveInternalRanges(leftGap))
+                        {
+                            yield return scrubbedIP;
+                        }
+                    }
+
+                    // if more gap on right keep going
+                    if (!range.End.TryIncrement(out startPrev) ||
+                        startPrev.IsIPv4MappedToIPv6 != range.End.IsIPv4MappedToIPv6)
+                    {
+                        startPrev = null;
+                        break;
+                    }
+                }
+
+                // last range
+                if (leftGap is not null && startPrev is not null)
+                {
+                    leftGap = new IPAddressRange(startPrev, lastPrev);
+                    foreach (var scrubbedIP in RemoveInternalRanges(leftGap))
+                    {
+                        yield return scrubbedIP;
+                    }
+                }
+            }
+
+            foreach (var range in Combine(ProcessRanges(sortedRanges, NetworkUtility.FirstIPV4, NetworkUtility.LastIPV4, System.Net.Sockets.AddressFamily.InterNetwork)))
+            {
+                yield return range;
+            }
+            foreach (var range in Combine(ProcessRanges(sortedRanges, NetworkUtility.FirstIPV6, NetworkUtility.LastIPV6, System.Net.Sockets.AddressFamily.InterNetworkV6)))
+            {
+                yield return range;
+            }
         }
     }
 }

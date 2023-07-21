@@ -25,6 +25,7 @@ SOFTWARE.
 #region Imports
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -38,10 +39,7 @@ namespace DigitalRuby.IPBanCore
 {
     public partial class IPBanService
     {
-        private static readonly char[] regexTrimChars = new[]
-        {
-            ',', ';', '|', '_', '-', '/', '\'', '\"', '(', ')', '[', ']', '{', '}', ' ', '\t', '\r', '\n'
-        };
+        private record FirewallTask(Delegate TaskToRun, object State, Type StateType, CancellationToken CancelToken);
 
         private static readonly char[] userNamePrefixChars = new[] { ',', '\\' };
 
@@ -51,14 +49,15 @@ namespace DigitalRuby.IPBanCore
         private readonly List<IPAddressLogEvent> pendingLogEvents = new();
         private readonly HashSet<IUpdater> updaters = new();
         private readonly SemaphoreSlim stopEvent = new(0, 1);
-        private readonly System.Collections.Concurrent.ConcurrentQueue<Func<CancellationToken, Task>> firewallTasks = new();
+        private readonly ConcurrentQueue<FirewallTask> firewallTasks = new();
         private readonly SemaphoreSlim cycleLock = new(1, 1);
-
-        private System.Threading.Timer cycleTimer;
+        private readonly IReadOnlyCollection<(string name, Func<CancellationToken, Task> action)> cycleActions;
+        
         private bool firewallNeedsBlockedIPAddressesUpdate;
         private IPBanDB ipDB;
         private bool whitelistChanged;
         private bool updateBannedIPAddressesOnStartCalled;
+        private bool startMessageShown;
 
         /// <summary>
         /// Whether start url has been gotten
@@ -103,6 +102,11 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public IDnsServerList DnsList { get; set; } = new IPBanDnsServerList();
 
+        /// <summary>
+        /// If an api key is specified in the IPThreatApiKey app setting
+        /// </summary>
+        public IPBanIPThreatUploader IPThreatUploader { get; set; }
+    
         /// <summary>
         /// Extra handler for banned ip addresses (optional)
         /// </summary>
@@ -199,6 +203,11 @@ namespace DigitalRuby.IPBanCore
         public string OSVersion { get; private set; }
 
         /// <summary>
+        /// App name
+        /// </summary>
+        public string AppName { get; private set; }
+
+        /// <summary>
         /// Assembly version
         /// </summary>
         public string AssemblyVersion { get; private set; }
@@ -214,12 +223,14 @@ namespace DigitalRuby.IPBanCore
         public bool UseWindowsEventViewer { get; set; } = true;
 
         /// <summary>
-        /// Firewall types
+        /// Firewall types, by default there are two:<br/>
+        /// - Windows Firewall (Windows only)<br/>
+        /// - FirewallD (Linux only)<br/>
         /// </summary>
         public HashSet<Type> FirewallTypes { get; } = new()
         {
             typeof(IPBanWindowsFirewall),
-            typeof(IPBanLinuxFirewall)
+            typeof(IPBanLinuxFirewallD)
         };
 
         /// <summary>

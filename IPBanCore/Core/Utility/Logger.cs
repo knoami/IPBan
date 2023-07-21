@@ -511,7 +511,6 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Log a trace
         /// </summary>
-        /// <param name="ts">Timestamp</param>
         /// <param name="text">Text with format</param>
         /// <param name="args">Format args</param>
         public static void Trace(string text, params object[] args)
@@ -591,12 +590,15 @@ namespace DigitalRuby.IPBanCore
         /// <param name="type">Event type</param>
         /// <param name="timestamp">Timestamp of the event, default for current timestamp</param>
         /// <param name="external">Whether this log came from an external source</param>
-        /// <param name="extraInfo">Extra info, if any</param>"
+        /// <param name="extraInfo">Extra info, if any</param>
         /// <param name="failedLoginThreshold">Failed login threshold or 0 for default</param>
         /// <param name="logLevel">Log level when the event is logged</param>
+        /// <param name="logData">Log data, if any</param>
+        /// <param name="notificationFlags">Notification flags</param>
         public IPAddressLogEvent(string ipAddress, string userName, string source,
             int count, IPAddressEventType type, DateTime timestamp = default, bool external = false,
-            string extraInfo = null, int failedLoginThreshold = 0, LogLevel logLevel = LogLevel.Warning)
+            string extraInfo = null, int failedLoginThreshold = 0, LogLevel logLevel = LogLevel.Warning,
+            string logData = null, IPAddressNotificationFlags notificationFlags = IPAddressNotificationFlags.None)
         {
             // normalize ip address if possible
             if (System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress parsedIPAddress))
@@ -616,6 +618,8 @@ namespace DigitalRuby.IPBanCore
             ExtraInfo = extraInfo ?? string.Empty;
             FailedLoginThreshold = failedLoginThreshold;
             LogLevel = logLevel;
+            LogData = logData;
+            NotificationFlags = notificationFlags;
         }
 
         /// <summary>
@@ -676,5 +680,15 @@ namespace DigitalRuby.IPBanCore
         /// Log level
         /// </summary>
         public LogLevel LogLevel { get; set; }
+
+        /// <summary>
+        /// Log data, if any
+        /// </summary>
+        public string LogData { get; set; }
+
+        /// <summary>
+        /// Notification flags
+        /// </summary>
+        public IPAddressNotificationFlags NotificationFlags { get; set; }
     }
 }

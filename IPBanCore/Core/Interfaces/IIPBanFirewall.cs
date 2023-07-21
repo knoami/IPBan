@@ -31,6 +31,9 @@ using System.Threading.Tasks;
 
 namespace DigitalRuby.IPBanCore
 {
+    /// <summary>
+    /// IPBan firewall interface
+    /// </summary>
     public interface IIPBanFirewall : IUpdater, IDisposable
     {
         /// <summary>
@@ -245,6 +248,11 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public bool Outbound { get; init; }
 
+        /// <summary>
+        /// Header row to match ToString method, including newline character(s).
+        /// </summary>
+        public static string Header { get; } = "Timestamp|FQDN|RuleName|Protocol|Direction|LocalIpAddress|LocalPort|RemoteIpAddress|RemotePort|RemoteISP|RemoteCountry|RemoteRegion|RemoteCity" + Environment.NewLine;
+
         /// <inheritdoc />
         public override string ToString()
         {
@@ -268,6 +276,11 @@ namespace DigitalRuby.IPBanCore
         /// IPAddress
         /// </summary>
         public string IPAddress { get; set; }
+
+        /// <summary>
+        /// Whether this is an ipv4 (true) or ipv6 (false)
+        /// </summary>
+        public bool IsIPV4 => System.Net.IPAddress.TryParse(IPAddress, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
 
         /// <summary>
         /// ToString

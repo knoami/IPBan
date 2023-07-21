@@ -22,10 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using Microsoft.Win32.TaskScheduler;
+
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 
 #pragma warning disable IDE0059 // Unnecessary assignment of a value
 #pragma warning disable IDE0051 // Remove unused private members
@@ -122,19 +126,6 @@ namespace DigitalRuby.IPBanCore
             [In] ref STARTUPINFO lpStartupInfo,
             out PROCESS_INFORMATION lpProcessInformation);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern bool CreateProcess(
-            string lpApplicationName,
-            string lpCommandLine,
-            ref SECURITY_ATTRIBUTES lpProcessAttributes,
-            ref SECURITY_ATTRIBUTES lpThreadAttributes,
-            bool bInheritHandles,
-            uint dwCreationFlags,
-            IntPtr lpEnvironment,
-            string lpCurrentDirectory,
-            [In] ref STARTUPINFOEX lpStartupInfo,
-            out PROCESS_INFORMATION lpProcessInformation);
-
         [DllImport("kernel32.dll")]
         private static extern uint GetLastError();
 
@@ -159,7 +150,7 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Create a detached process
         /// </summary>
-        /// <param name="fileName">File name to execute</param>
+        /// <param name="fileName">File name to execute (full path)</param>
         /// <param name="arguments">Arguments</param>
         public static void CreateDetachedProcess(string fileName, string arguments)
         {
@@ -168,13 +159,47 @@ namespace DigitalRuby.IPBanCore
 
             if (OSUtility.IsWindows)
             {
+                // Get the task service on the local machine
+                using TaskService ts = new();
+
+                // create task name
+                var taskName = "DetachedProcess_" + Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(Path.GetFileName(fileName))));
+
+                // remove the task if it already exists
+                ts.RootFolder.DeleteTask(taskName, false);
+
+                // create a new task definition and assign properties
+                TaskDefinition td = ts.NewTask();
+                td.RegistrationInfo.Description = "Detached process for " + fileName;
+
+                // create a trigger that will run the process in 5 seconds
+                td.Triggers.Add(new TimeTrigger(IPBanService.UtcNow.AddSeconds(5.0)));
+
+                // create the action to run the process
+                td.Actions.Add(new ExecAction(fileName, arguments, Path.GetDirectoryName(fileName)));
+
+                // delete task upon completion
+                td.Actions.Add(new ExecAction("schtasks.exe", "/Delete /TN \"" + taskName + "\" /F", null));
+
+                // register the task in the root folder
+                var task = ts.RootFolder.RegisterTaskDefinition(taskName, td);
+                task.Run(); // just run it now
+
+                // this code is not working on some Windows versions or from a service, the child process is still killed when the service is killed
+                /*
                 var processInformation = new ProcessUtility.PROCESS_INFORMATION();
                 var startupInfo = new ProcessUtility.STARTUPINFO();
                 var sa = new ProcessUtility.SECURITY_ATTRIBUTES();
                 sa.Length = Marshal.SizeOf(sa);
-                CreateProcess(null, "\"" + fileName + "\" " + arguments, ref sa, ref sa, false,
-                    DETACHED_PROCESS,
+                var fullArguments = $"\"{fileName}\" " + arguments;
+                bool result = CreateProcess(fileName, fullArguments, ref sa, ref sa, false,
+                    CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
                     IntPtr.Zero, Path.GetDirectoryName(fileName), ref startupInfo, out processInformation);
+                if (!result)
+                {
+                    Logger.Warn("Failed to create detached process for " + fileName);
+                }
+                */
             }
             else
             {
@@ -191,9 +216,7 @@ namespace DigitalRuby.IPBanCore
                     WindowStyle = ProcessWindowStyle.Hidden,
                     WorkingDirectory = Path.GetDirectoryName(fileName)
                 };
-
-                // start detached process, do not dispose
-                using Process process = Process.Start(info);
+                using var detachedProcess = Process.Start(info);
             }
         }
     }

@@ -145,6 +145,15 @@ namespace DigitalRuby.IPBanCore
         public int FailedLoginThreshold { get; set; }
 
         /// <summary>
+        /// Flags
+        /// </summary>
+        [DisplayFormat(ConvertEmptyStringToNull = false)]
+        [Required(AllowEmptyStrings = true)]
+        [LocalizedDisplayName(nameof(IPBanResources.DisableNotificationFlags))]
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public IPAddressNotificationFlags NotificationFlags { get; set; } = IPAddressNotificationFlags.None;
+
+        /// <summary>
         /// ToString
         /// </summary>
         /// <returns>String</returns>

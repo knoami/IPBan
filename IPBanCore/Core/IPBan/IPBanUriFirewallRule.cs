@@ -25,6 +25,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -73,6 +74,11 @@ namespace DigitalRuby.IPBanCore
         public Uri Uri { get; }
 
         /// <summary>
+        /// Max count of ips that can be returned
+        /// </summary>
+        public int MaxCount { get; }
+
+        /// <summary>
         /// Constructor
         /// </summary>
         /// <param name="firewall">The firewall to block with</param>
@@ -81,8 +87,9 @@ namespace DigitalRuby.IPBanCore
         /// <param name="rulePrefix">Firewall rule prefix</param>
         /// <param name="interval">Interval to check uri for changes</param>
         /// <param name="uri">Uri, can be either file or http(s).</param>
+        /// <param name="maxCount">Max count of ips that can come from the rule or less than or equal to 0 for infinite.</param>
         public IPBanUriFirewallRule(IIPBanFirewall firewall, IIsWhitelisted whitelistChecker, IHttpRequestMaker httpRequestMaker, string rulePrefix,
-            TimeSpan interval, Uri uri)
+            TimeSpan interval, Uri uri, int maxCount = 10000)
         {
             this.firewall = firewall.ThrowIfNull();
             this.whitelistChecker = whitelistChecker.ThrowIfNull();
@@ -90,6 +97,7 @@ namespace DigitalRuby.IPBanCore
             RulePrefix = rulePrefix.ThrowIfNull();
             Uri = uri.ThrowIfNull();
             Interval = (interval.TotalSeconds < 5.0 ? fiveSeconds : interval);
+            MaxCount = maxCount;
 
             if (!uri.IsFile)
             {
@@ -161,7 +169,18 @@ namespace DigitalRuby.IPBanCore
                         string filePath = Uri.LocalPath;
                         if (File.Exists(filePath))
                         {
-                            await ProcessResult(await File.ReadAllTextAsync(filePath, cancelToken), cancelToken);
+                            string text;
+                            if (filePath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
+                            {
+                                using var fs = File.OpenRead(filePath);
+                                var bytes = DecompressBytes(fs);
+                                text = Encoding.UTF8.GetString(bytes);
+                            }
+                            else
+                            {
+                                text = await File.ReadAllTextAsync(filePath, cancelToken);
+                            }
+                            await ProcessResult(text, cancelToken);
                         }
                     }
                     else
@@ -201,7 +220,7 @@ namespace DigitalRuby.IPBanCore
 
             while ((line = reader.ReadLine()) != null)
             {
-                if (lines++ > 10000)
+                if (lines++ > MaxCount)
                 {
                     // prevent too many lines from crashing us
                     break;
@@ -229,6 +248,16 @@ namespace DigitalRuby.IPBanCore
             }
 
             return firewall.BlockIPAddresses(RulePrefix, ranges, null, cancelToken);
+        }
+
+        private static byte[] DecompressBytes(Stream input)
+        {
+            MemoryStream decompressdStream = new();
+            {
+                using GZipStream gz = new(input, CompressionMode.Decompress, true);
+                gz.CopyTo(decompressdStream);
+            }
+            return decompressdStream.ToArray();
         }
     }
 }

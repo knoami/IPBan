@@ -45,14 +45,14 @@ namespace DigitalRuby.IPBanTests
             string source, string successfulLoginRegex, string successfulLoginRegexTimestampFormat,
             LogLevel failedLogLevel = LogLevel.Warning, LogLevel successLogLevel = LogLevel.Warning)
         {
-            Assert.AreEqual(IPBanConfig.ParseRegex(failedLoginRegex)?.ToString(), IPBanConfig.ParseRegex(file.FailedLoginRegex)?.ToString());
+            Assert.AreEqual(IPBanRegexParser.ParseRegex(failedLoginRegex)?.ToString(), IPBanRegexParser.ParseRegex(file.FailedLoginRegex)?.ToString());
             Assert.AreEqual(failedLoginRegexTimestampFormat, file.FailedLoginRegexTimestampFormat);
             Assert.AreEqual(maxFileSize, file.MaxFileSize);
             Assert.AreEqual(Regex.Replace(pathAndMask.Trim().Replace('\n', '|'), "\\s+", string.Empty), Regex.Replace(file.PathAndMask.Trim().Replace('\n', '|'), "\\s+", string.Empty));
             Assert.AreEqual(pingInterval, file.PingInterval);
-            Assert.AreEqual(IPBanConfig.ParseRegex(platformRegex)?.ToString(), IPBanConfig.ParseRegex(file.PlatformRegex)?.ToString());
+            Assert.AreEqual(IPBanRegexParser.ParseRegex(platformRegex)?.ToString(), IPBanRegexParser.ParseRegex(file.PlatformRegex)?.ToString());
             Assert.AreEqual(source, file.Source);
-            Assert.AreEqual(IPBanConfig.ParseRegex(successfulLoginRegex)?.ToString(), IPBanConfig.ParseRegex(file.SuccessfulLoginRegex)?.ToString());
+            Assert.AreEqual(IPBanRegexParser.ParseRegex(successfulLoginRegex)?.ToString(), IPBanRegexParser.ParseRegex(file.SuccessfulLoginRegex)?.ToString());
             Assert.AreEqual(successfulLoginRegexTimestampFormat, file.SuccessfulLoginRegexTimestampFormat);
             Assert.AreEqual(failedLogLevel, file.FailedLoginLogLevel);
             Assert.AreEqual(successLogLevel, file.SuccessfulLoginLogLevel);
@@ -67,49 +67,49 @@ namespace DigitalRuby.IPBanTests
             object[] logFileData = new object[]
             {
                 "/var/log/auth*.log\n/var/log/secure*\n/var/log/messages",
-                @"failed\s+password\s+for\s+(invalid\s+user\s+)?(?<username>[^\s]+)\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+ssh|did\s+not\s+receive\s+identification\s+string\s+from\s+(?<ipaddress>[^\s]+)|connection\s+closed\s+by\s+((invalid\s+user\s+)?(?<username>[^\s]+)\s+)?(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|disconnected\s+from\s+(invalid\s+user\s+)?(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|disconnected\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|disconnected\s+from\s+authenticating\s+user\s+(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]",
+                @"(?<log>failed\s+password)\s+for\s+(?:invalid\s+user\s+)?(?<username>[^\s]+)\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+ssh|(?<log>did\s+not\s+receive\s+identification\s+string)\s+from\s+(?<ipaddress>[^\s]+)|(?<log>connection\s+closed)\s+by\s+(?:(?:invalid\s+user\s+)?(?<username>[^\s]+)\s+)?(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|(?<log>disconnected\s+from)\s+(?:invalid\s+user\s+)?(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|(?<log>disconnected\s+from)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|(?<log>disconnected\s+from\s+authenticating\s+user)\s+(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]",
                 @"",
                 @"\s+Accepted\s+(?:password|publickey)\s+for\s+(?<username>[^\s]+)\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+ssh",
                 @"",
                 "Linux", "SSH",
 
                 "/var/log/ipbancustom*.log",
-                @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?ipban\sfailed\slogin,\sip\saddress:\s(?<ipaddress>[^,\n]+),\ssource:\s(?<source>[^,\n]+)?,\suser:\s(?<username>[^\s,]+)?",
+                @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?(?<log>ipban\sfailed\slogin),\sip\saddress:\s(?<ipaddress>[^,\n]+),\ssource:\s(?<source>[^,\n]+)?,\suser:\s(?<username>[^\s,]+)?",
                 @"",
                 @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?ipban\ssuccess\slogin,\sip\saddress:\s(?<ipaddress>[^,\n]+),\ssource:\s(?<source>[^,\n]+)?,\suser:\s(?<username>[^\s,]+)?",
                 @"",
                 "Linux", "IPBanCustom",
 
                 "C:/Program Files/Microsoft/Exchange Server/*/TransportRoles/Logs/FrontEnd/ProtocolLog/**.log",
-                @"^(?<timestamp>[0-9TZ\-:\.]+),(?:.*?\\(?:External\sAuthenticated\sRelay|Internet\sRecive\sFrontend),)?(?:[^,\n]*,){3}(?<ipaddress>[^,\n]+).*?(?:(?:504\s5\.7\.4\sUnrecognized\sauthentication\stype)|(?:LogonDenied\n?.*?(?:User\:|User\sName\:)\s(?<username>[^\n,""]+)))",
+                @"^(?<timestamp>[0-9TZ\-:\.]+),(?:.*?\\(?:External\sAuthenticated\sRelay|Internet\sRecive\sFrontend),)?(?:[^,\n]*,){3}(?<ipaddress>[^,\n]+).*?(?:(?:504\s5\.7\.4\s(?<log>Unrecognized\sauthentication\stype))|(?:(?<log>LogonDenied)\n?.*?(?:User\:|User\sName\:)\s(?<username>[^\n,""]+)))",
                 @"",
                 @"^(?<timestamp>[0-9TZ\-:\.]+)?,(?:[^,\n]*,){4}(?<ipaddress>[^,\n]+),(?:[^,\n]*),(?<username>[^,\n]*),authenticated",
                 @"",
                 "Windows", "MSExchange",
 
                 "C:/Program Files/Smarter Tools/Smarter Mail/**/*.log\nC:/Program Files (x86)/Smarter Tools/Smarter Mail/**/*.log\nC:/SmarterMail/logs/**/*.log\nC:/Smarter Mail/logs/**/*.log",
-                @"\[(?<ipaddress>[^\]\n]+)\](?:\[[^\]\n]*\]\s+).*?(?:(?:The\sdomain\sgiven\sin\sthe\sEHLO\scommand\sviolates\san\sEHLO\sSMTP)|(?:IP\sblocked\sby\sbrute\sforce\sabuse\sdetection\srule)|(?:login\sfailed)|(?:IP\sblocked\sby\sbrute\sforce\sabuse\sdetection\srule)|(?:IP\sis\sblacklisted)|(?:too\smany\sauthentication\sfailures)|(?:Authentication\sfailed)|(?:EHLO\sSMTP\sblocking\srule)|(?:IP\sblocked\sby\sbrute\sforce\sabuse\sdetection\srule)|(?:IP\sis\sblacklisted)|(?:Mail\srejected\sdue\sto\sSMTP\sSpam\sBlocking)|(?:Too\smany\sauthentication\sfailures))",
+                @"\[(?<ipaddress>[^\]\n]+)\](?:\[[^\]\n]*\]\s+).*?(?<log>login\sfailed|IP\sis\sblacklisted|Authentication\sfailed|EHLO\sSMTP\sblocking\srule|rsp:\s554\sSecurity\sfailure|too\smany\sauthentication\sfailures|Mail\srejected\sdue\sto\sSMTP\sSpam\sBlocking|IP\sblocked\sby\sbrute\sforce\sabuse\sdetection\srule|The\sdomain\sgiven\sin\sthe\sEHLO\scommand\sviolates\san\sEHLO\sSMTP)",
                 @"",
                 @"",
                 @"",
                 "Windows", "SmarterMail",
 
                 "C:/Program Files (x86)/Mail Enable/Logging/SMTP/SMTP-Activity-*.log\nC:/Program Files/Mail Enable/Logging/SMTP/SMTP-Activity-*.log\nC:/Program Files (x86)/Mail Enable/Logging/IMAP\nC:/Program Files/Mail Enable/Logging/IMAP",
-                @"^(?<timestamp>[0-9\/:\s]+)SMTP\-IN\s+[^\s]+\s+[^\s]+\s(?<ipaddress>[^\s]+)\s+[^\s]+\s+[^\s]+\s+[^\s]+\s+Invalid\sUsername\sor\sPassword\s+[^\s]+\s+[^\s]+\s+(?<username>[^\n]+)$|^(?<timestamp>[0-9\/:\s]+)IMAP\-IN\s+[^\s]+\s+(?<ipaddress>[^\s]+)\s+LOGIN\s+LOGIN\s+""(?<username>[^""]+)""\s+""[^""]+""\s+[^\s]+\s+NO\s+LOGIN\s+Failed\s+[^\s]+\s+Invalid\s+username\s+or\s+password[^\n]*$",
+                @"^(?<timestamp>[0-9\/:\s]+)SMTP\-IN\s+[^\s]+\s+[^\s]+\s(?<ipaddress>[^\s]+)\s+[^\s]+\s+[^\s]+\s+[^\s]+\s+(?<log>Invalid\sUsername\sor\sPassword)\s+[^\s]+\s+[^\s]+\s+(?<username>[^\n]+)$|^(?<timestamp>[0-9\/:\s]+)IMAP\-IN\s+[^\s]+\s+(?<ipaddress>[^\s]+)\s+LOGIN\s+LOGIN\s+""(?<username>[^""]+)""\s+""[^""]+""\s+[^\s]+\s+NO\s+LOGIN\s+Failed\s+[^\s]+\s+(?<log>Invalid\s+username\s+or\s+password)[^\n]*$",
                 @"MM/dd/yy HH:mm:ss",
                 @"",
                 @"",
                 "Windows", "MailEnable",
 
                 "C:/Program Files/Tomcat/logs/**/*access_log*.txt\n/var/log/httpd/access_log",
-                @"^(?<ipaddress>[^\s]+)\s.*?\[(?<timestamp>.*?)\].*?(?:(?:\s40[03]\s(-|[0-9]+))|((php|md5sum|cgi-bin|joomla).*?\s40[03]\s[0-9]+|\s400\s-))[^\n]*",
+                @"^(?<ipaddress>[^\s]+)\s.*?\[(?<timestamp>.*?)\].*?(?:\s(?<log>40[03])\s(-|[0-9]+)|((php|md5sum|cgi-bin|joomla).*?\s(?<log>40[03]\s[0-9]+|\s400\s-)))[^\n]*",
                 @"dd/MMM/yyyy:HH:mm:ss zzzz",
                 @"",
                 @"",
                 "Windows|Linux", "Apache",
 
                 "C:/IPBanCustomLogs/**/*.log",
-                @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?ipban\sfailed\slogin,\sip\saddress:\s(?<ipaddress>[^,\n]+),\ssource:\s(?<source>[^,\n]+)?,\suser:\s(?<username>[^\s,]+)?",
+                @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?(?<log>ipban\sfailed\slogin),\sip\saddress:\s(?<ipaddress>[^,\n]+),\ssource:\s(?<source>[^,\n]+)?,\suser:\s(?<username>[^\s,]+)?",
                 @"",
                 @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?ipban\ssuccess\slogin,\sip\saddress:\s(?<ipaddress>[^,\n]+),\ssource:\s(?<source>[^,\n]+)?,\suser:\s(?<username>[^\s,]+)?",
                 @"",
@@ -148,7 +148,7 @@ namespace DigitalRuby.IPBanTests
             for (int i = 0; i < expressions.Length;)
             {
                 int groupIndex = i / 2;
-                Regex regex = IPBanConfig.ParseRegex(group.Expressions[groupIndex].Regex);
+                Regex regex = IPBanRegexParser.ParseRegex(group.Expressions[groupIndex].Regex);
                 Assert.AreEqual(expressions[i++], group.Expressions[groupIndex].XPath?.Trim());
                 Assert.AreEqual(expressions[i++], (regex is null ? string.Empty : regex.ToString()));
             }
@@ -163,31 +163,38 @@ namespace DigitalRuby.IPBanTests
             }
 
             const int minimumWindowsMajorVersion = 6;
+
+            var groupCount = 14;
+            var i = 0;
             List<EventViewerExpressionGroup> groups = cfg.WindowsEventViewerExpressionsToBlock.Groups;
             Assert.NotNull(groups);
-            Assert.AreEqual(13, groups.Count);
-            AssertEventViewerGroup(groups[0], "0x8010000000000000", minimumWindowsMajorVersion, 0, false, "Security", "RDP", "//EventID", "^(4625|5152)$", "//Data[@Name='IpAddress' or @Name='Workstation' or @Name='SourceAddress']", "(?<ipaddress>.+)", "//Data[@Name='ProcessName']", "(?<source_IIS>c:\\\\Windows\\\\System32\\\\inetsrv\\\\w3wp.exe)?$");
-            AssertEventViewerGroup(groups[1], "0x8010000000000000", minimumWindowsMajorVersion, 0, false, "Security", "RDP", "//EventID", "^4653$", "//Data[@Name='FailureReason']", ".", "//Data[@Name='RemoteAddress']", "(?<ipaddress>.+)");
-            AssertEventViewerGroup(groups[2], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "IPBanCustom", "//Data", @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?ipban\sfailed\slogin,\sip\saddress:\s(?<ipaddress>[^,]+),\ssource:\s(?<source>[^,]+)?,\suser:\s(?<username>[^\s,]+)?");
-            AssertEventViewerGroup(groups[3], "0x90000000000000", minimumWindowsMajorVersion, 0, false, "Application", "MSSQL", "//Provider[contains(@Name,'MSSQL')]", string.Empty, "//EventID", "^18456$", "(//Data)[1]", "^(?<username>.+)$", "(//Data)[2]", @"^(?:(?!Reason:\sFailed\sto\sopen\sthe(?:\sexplicitly\sspecified)?\sdatabase)(?:.))+$", "(//Data)[3]", @"\[CLIENT\s?:\s?(?<ipaddress>[^\]]+)\]");
-            AssertEventViewerGroup(groups[4], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "MySQL", "//Provider[@Name='MySQL']", string.Empty, "//Data", "Access denied for user '?(?<username>[^']+)'@'(?<ipaddress>[^']+)'");
-            AssertEventViewerGroup(groups[5], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "PostgreSQL", "//Provider[@Name='PostgreSQL']", string.Empty, "//Data", "host=(?<ipaddress>[^ ]+)");
-            AssertEventViewerGroup(groups[6], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "System", "MSExchange", "//Provider[@Name='MSExchangeTransport']", string.Empty, "//Data", "LogonDenied", "//Data", "(?<ipaddress_exact>.+)");
-            AssertEventViewerGroup(groups[7], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "phpMyAdmin", "//Data", "phpMyAdmin", "//Data", @"user\sdenied:\s+(?<username>[^\s]+)\s+\(mysql-denied\)\s+from\s+(?<ipaddress>.+)");
-            AssertEventViewerGroup(groups[8], "0x4000000000000000", minimumWindowsMajorVersion, 0, false, "OpenSSH/Operational", "SSH", "//Data[@Name='payload']", @"failed\s+password\s+for\s+(invalid\s+user\s+)?(?<username>[^\s]+)\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+ssh|did\s+not\s+receive\s+identification\s+string\s+from\s+(?<ipaddress>[^\s]+)|connection\s+closed\s+by\s+((invalid\s+user\s+)?(?<username>[^\s]+)\s+)?(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|disconnected\s+from\s+(invalid\s+user\s+)?(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|disconnected\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|disconnected\s+from\s+authenticating\s+user\s+(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]");
-            AssertEventViewerGroup(groups[9], "0x4000000000000000", minimumWindowsMajorVersion, 0, false, "Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational", "RDP", "//Opcode", "^14$", "//Data[@Name='ClientIP' or @Name='IPString']", "(?<ipaddress>.+)");
-            AssertEventViewerGroup(groups[10], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "VNC", "//EventID", "^258$", "//Data", @"Authentication\sfailed\sfrom\s(?<ipaddress>.+)");
-            AssertEventViewerGroup(groups[11], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "System", "RRAS", "//EventID", "^20271$", "(//Data)[2]", @"(?<username>.*)", "(//Data)[3]", @"(?<ipaddress>.+)", "(//Data)[4]", @"denied|(Die\sRemoteverbindung\swurde\sverweigert)");
-            AssertEventViewerGroup(groups[12], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "VisualSVNServer", "SVN", "//EventID", "^1004$", "(//Data)[1]", @"user\s(?<username>.*?):\s\(.*\)\s.*?(falsch|wrong|incorrect|bad)", "(//Data)[2]", @"(?<ipaddress_exact>.+)");
+            Assert.AreEqual(groupCount, groups.Count);
+            AssertEventViewerGroup(groups[i++], "0x8010000000000000", minimumWindowsMajorVersion, 0, false, "Security", "RDP", "//EventID", "^(?<log>4625|5152)$", "//Data[@Name='IpAddress' or @Name='Workstation' or @Name='SourceAddress']", "(?<ipaddress>.+)", "//Data[@Name='ProcessName']", "(?<source_IIS>c:\\\\Windows\\\\System32\\\\inetsrv\\\\w3wp.exe)?$");
+            AssertEventViewerGroup(groups[i++], "0x8010000000000000", minimumWindowsMajorVersion, 0, false, "Security", "RDP", "//EventID", "^(?<log>4653)$", "//Data[@Name='FailureReason']", ".", "//Data[@Name='RemoteAddress']", "(?<ipaddress>.+)");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "IPBanCustom", "//Data", @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?(?<log>ipban\sfailed\slogin),\sip\saddress:\s(?<ipaddress>[^,]+),\ssource:\s(?<source>[^,]+)?,\suser:\s(?<username>[^\s,]+)?");
+            AssertEventViewerGroup(groups[i++], "0x90000000000000", minimumWindowsMajorVersion, 0, false, "Application", "MSSQL", "//Provider[contains(@Name,'MSSQL')]", string.Empty, "//EventID", "^(?<log>18456)$", "(//Data)[1]", "^(?<username>.+)$", "(//Data)[2]", @"^(?:(?!Reason:\sFailed\sto\sopen\sthe(?:\sexplicitly\sspecified)?\sdatabase)(?:.))+$", "(//Data)[3]", @"\[CLIENTE?\s?:\s?(?<ipaddress>[^\]]+)\]");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "MySQL", "//Provider[@Name='MySQL' or @Name='MariaDB']", string.Empty, "//Data", "(?<log>Access denied for user) '?(?<username>[^']+)'@'(?<ipaddress>[^']+)'");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "PostgreSQL", "//Provider[@Name='PostgreSQL']", string.Empty, "//Data", "host=(?<ipaddress>[^ ]+)");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "System", "MSExchange", "//Provider[@Name='MSExchangeTransport']", string.Empty, "//Data", "(?<log>LogonDenied)", "//Data", "(?<ipaddress_exact>.+)");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "phpMyAdmin", "//Data", "phpMyAdmin", "//Data", @"(?<log>user\sdenied):\s+(?<username>[^\s]+)\s+\(mysql-denied\)\s+from\s+(?<ipaddress>.+)");
+            AssertEventViewerGroup(groups[i++], "0x4000000000000000", minimumWindowsMajorVersion, 0, false, "OpenSSH/Operational", "SSH", "//Data[@Name='payload']", @"(?<log>failed\s+password)\s+for\s+(invalid\s+user\s+)?(?<username>[^\s]+)\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+ssh|(?<log>did\s+not\s+receive\s+identification\s+string)\s+from\s+(?<ipaddress>[^\s]+)|(?<log>connection\s+closed)\s+by\s+((invalid\s+user\s+)?(?<username>[^\s]+)\s+)?(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|(?<log>disconnected\s+from)\s+(invalid\s+user\s+)?(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|(?<log>disconnected\s+from)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]|(?<log>disconnected\s+from\s+authenticating\s+user)\s+(?<username>[^\s]+)\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+\[preauth\]");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "SSH", "//EventID", "^0$", "//Data", "^sshd:\\spid\\s[0-9]+:\\sinvalid\\suser\\s(?<username>[^\\s]+)\\sfrom\\s(?<ipaddress>[^\\s]+)\\sport\\s[0-9]+");
+            AssertEventViewerGroup(groups[i++], "0x4000000000000000", minimumWindowsMajorVersion, 0, false, "Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational", "RDP", "//Opcode", "^(?<log>14)$", "//Data[@Name='ClientIP' or @Name='IPString']", "(?<ipaddress>.+)");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "Application", "VNC", "//EventID", "^258$", "//Data", @"(?<log>Authentication\sfailed)\sfrom\s(?<ipaddress>.+)");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "System", "RRAS", "//EventID", "^20271$", "(//Data)[2]", @"(?<username>.*)", "(//Data)[3]", @"(?<ipaddress>.+)", "(//Data)[4]", @"(?<log>denied|Die\sRemoteverbindung\swurde\sverweigert)");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, false, "VisualSVNServer", "SVN", "//EventID", "^1004$", "(//Data)[1]", @"user\s(?<username>.*?):\s\(.*\)\s.*?(?<log>falsch|wrong|incorrect|bad)", "(//Data)[2]", @"(?<ipaddress_exact>.+)");
 
+            groupCount = 6;
             groups = cfg.WindowsEventViewerExpressionsToNotify.Groups;
+            i = 0;
             Assert.NotNull(groups);
-            Assert.AreEqual(5, groups.Count);
-            AssertEventViewerGroup(groups[0], "0x8020000000000000", minimumWindowsMajorVersion, 0, true, "Security", "RDP", "//EventID", "^4624$", "//Data[@Name='ProcessName' or @Name='LogonProcessName']", "winlogon|svchost|ntlmssp", "//Data[@Name='IpAddress' or @Name='Workstation' or @Name='SourceAddress']", "(?<ipaddress>.+)");
-            AssertEventViewerGroup(groups[1], "0x4000000000000000", minimumWindowsMajorVersion, 0, true, "OpenSSH/Operational", "SSH", "//Data[@Name='payload']", @"Accepted\s+(?:password|publickey)\s+for\s+(?<username>[^\s]+)\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+ssh");
-            AssertEventViewerGroup(groups[2], "0x80000000000000", minimumWindowsMajorVersion, 0, true, "Application", "IPBanCustom", "//Data", @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?ipban\ssuccess\slogin,\sip\saddress:\s(?<ipaddress>[^,]+),\ssource:\s(?<source>[^,]+)?,\suser:\s(?<username>[^\s,]+)?");
-            AssertEventViewerGroup(groups[3], "0x80000000000000", minimumWindowsMajorVersion, 0, true, "Application", "VNC", "//EventID", "^257$", "//Data", @"Authentication\spassed\sby\s(?<ipaddress>.+)");
-            AssertEventViewerGroup(groups[4], "0x8020000000000000", minimumWindowsMajorVersion, 0, true, "System", "RRAS", "//EventID", "^6272$", "//Data[@Name='SubjectUserName']", @"(?<username>[^\\\/]+)$", "//Data[@Name='CallingStationID']", "(?<ipaddress>.+)", "//Data[@Name='EAPType']", "\\s?secured\\spassword\\s?");
+            Assert.AreEqual(groupCount, groups.Count);
+            AssertEventViewerGroup(groups[i++], "0x8020000000000000", minimumWindowsMajorVersion, 0, true, "Security", "RDP", "//EventID", "^4624$", "//Data[@Name='ProcessName' or @Name='LogonProcessName']", "winlogon|svchost|ntlmssp", "//Data[@Name='IpAddress' or @Name='Workstation' or @Name='SourceAddress']", "(?<ipaddress>.+)");
+            AssertEventViewerGroup(groups[i++], "0x4000000000000000", minimumWindowsMajorVersion, 0, true, "OpenSSH/Operational", "SSH", "//Data[@Name='payload']", @"Accepted\s+(?:password|publickey)\s+for\s+(?<username>[^\s]+)\s+from\s+(?<ipaddress>[^\s]+)\s+port\s+[0-9]+\s+ssh");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, true, "Application", "IPBanCustom", "//Data", @"(?<timestamp>\d\d\d\d-\d\d-\d\d\s\d\d:\d\d:\d\d(?:\.\d+)?Z?)?(?:,\s)?ipban\ssuccess\slogin,\sip\saddress:\s(?<ipaddress>[^,]+),\ssource:\s(?<source>[^,]+)?,\suser:\s(?<username>[^\s,]+)?");
+            AssertEventViewerGroup(groups[i++], "0x80000000000000", minimumWindowsMajorVersion, 0, true, "Application", "VNC", "//EventID", "^257$", "//Data", @"Authentication\spassed\sby\s(?<ipaddress>.+)");
+            AssertEventViewerGroup(groups[i++], "0x8020000000000000", minimumWindowsMajorVersion, 0, true, "System", "RRAS", "//EventID", "^6272$", "//Data[@Name='SubjectUserName']", @"(?<username>[^\\\/]+)$", "//Data[@Name='CallingStationID']", "(?<ipaddress>.+)", "//Data[@Name='EAPType']", "\\s?secured\\spassword\\s?");
+            AssertEventViewerGroup(groups[i++], "0xa0000000000000", minimumWindowsMajorVersion, 0, true, "Application", "MSSQL", "//Provider[contains(@Name,'MSSQL')]", string.Empty, "//EventID", "^(?<log>18454)$", "(//Data)[1]", "^(?<username>.+)$", "(//Data)[2]", @"\[CLIENTE?\s?:\s?(?<ipaddress>[^\]]+)\]");
         }
 
         [Test]
@@ -216,6 +223,8 @@ namespace DigitalRuby.IPBanTests
                 Assert.IsEmpty(cfg.ProcessToRunOnUnban);
                 Assert.IsFalse(cfg.ResetFailedLoginCountForUnbannedIPAddresses);
                 Assert.IsTrue(cfg.UseDefaultBannedIPAddressHandler);
+                Assert.AreEqual(cfg.TruncateUserNameChars, "@");
+                Assert.AreEqual(IPBanRegexParser.TruncateUserNameChars, cfg.TruncateUserNameChars);
                 Assert.IsEmpty(cfg.UserNameWhitelist);
                 Assert.IsEmpty(cfg.UserNameWhitelistRegex);
                 Assert.IsEmpty(cfg.WhitelistFilter.IPAddressRanges);
@@ -315,6 +324,29 @@ e.g.
                 this);
             Assert.IsFalse(config.WhitelistFilter.IsFiltered("99.88.77.66"));
             Assert.IsTrue(config.BlacklistFilter.IsFiltered("99.88.77.66"));
+        }
+
+        [Test]
+        public void TestAppSettingEnvVar()
+        {
+            Environment.SetEnvironmentVariable("IPBAN_APP_SETTING_ENV_VAR_EXIST", "1.2.3.4", EnvironmentVariableTarget.Process);
+            var envVar = Environment.GetEnvironmentVariable("IPBAN_APP_SETTING_ENV_VAR_EXIST");
+            Assert.That(envVar, Is.EqualTo("1.2.3.4"));
+
+            IPBanConfig config = IPBanConfig.LoadFromXml(
+                "<?xml version='1.0'?>" +
+                "<configuration>" +
+                  "<appSettings>" +
+                    "<add key='Blacklist' value='%IPBAN_APP_SETTING_ENV_VAR_NOT_EXIST%' />" +
+                    "<add key='Whitelist' value='%IPBAN_APP_SETTING_ENV_VAR_EXIST%' />" +
+                  "</appSettings>" +
+                "</configuration>",
+                this);
+
+            Assert.That(config.BlacklistFilter.Value, Is.Empty);
+            Assert.That(config.WhitelistFilter.Value, Is.EqualTo("1.2.3.4"));
+
+            Environment.SetEnvironmentVariable("IPBAN_APP_SETTING_ENV_VAR_EXIST", null);
         }
 
         public Task<IPAddress[]> GetHostAddressesAsync(string hostNameOrAddress)

@@ -19,7 +19,7 @@ namespace DigitalRuby.IPBanCore
     /// </summary>
     public class IPAddressRange : IEnumerable<IPAddress>, IReadOnlyDictionary<string, string>, IComparable<IPAddressRange>
     {
-        public static class Bits
+        private static class Bits
         {
             public static bool ValidateSubnetMaskIsLinear(byte[] maskBytes, string ipRangeString, bool throwException)
             {
@@ -474,6 +474,16 @@ namespace DigitalRuby.IPBanCore
                         throw new ArgumentNullException(nameof(ipRangeString));
                     }
                     return null;
+                }
+
+                // handle .* syntax
+                if (ipRangeString.EndsWith(".*.*"))
+                {
+                    ipRangeString = ipRangeString[..^4] + ".0.0/16";
+                }
+                else if (ipRangeString.EndsWith(".*"))
+                {
+                    ipRangeString = ipRangeString[..^2] + ".0/24";
                 }
 
                 int pos = ipRangeString.IndexOfAny(commentChars);

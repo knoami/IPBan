@@ -31,42 +31,52 @@ using System.Threading.Tasks;
 namespace DigitalRuby.IPBanCore
 {
     /// <summary>
-    /// Linux firewall implementation
+    /// Linux firewall implementation using iptables
     /// </summary>
     [RequiredOperatingSystem(OSUtility.Linux)]
     [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All)]
-    public class IPBanLinuxFirewall : IPBanLinuxBaseFirewall
+    public class IPBanLinuxFirewallIPTables : IPBanLinuxBaseFirewallIPTables
     {
         /// <summary>
-        /// Linux Firewall for IPV6, is wrapped inside IPBanLinuxFirewall
+        /// Linux Firewall iptables for IPV6, is wrapped inside IPBanLinuxFirewallIPTables
         /// </summary>
-        private class IPBanLinuxFirewall6 : IPBanLinuxBaseFirewall
+        private sealed class IPBanLinuxFirewallIPTables6 : IPBanLinuxBaseFirewallIPTables
         {
             protected override bool IsIPV4 => false;
-            protected override string INetFamily => "inet6";
+            protected override string INetFamily => IPBanLinuxIPSetIPTables.INetFamilyIPV6;
             protected override string SetSuffix => ".set6";
             protected override string TableSuffix => ".tbl6";
             protected override string IpTablesProcess => ip6TablesProcess;
 
-            public IPBanLinuxFirewall6(string rulePrefix) : base(rulePrefix + "6_")
+            public IPBanLinuxFirewallIPTables6(string rulePrefix) : base(rulePrefix + "6_")
             {
 
             }
         }
 
-        private IPBanLinuxFirewall6 firewall6;
+        private readonly IPBanLinuxFirewallIPTables6 firewall6;
 
+        /// <inheritdoc />
         protected override void OnDispose()
         {
             base.OnDispose();
             firewall6.Dispose();
         }
 
-        public IPBanLinuxFirewall(string rulePrefix) : base(rulePrefix)
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="rulePrefix">Rule prefix</param>
+        public IPBanLinuxFirewallIPTables(string rulePrefix) : base(rulePrefix)
         {
-            firewall6 = new IPBanLinuxFirewall6(RulePrefix);
+            firewall6 = new IPBanLinuxFirewallIPTables6(RulePrefix);
+            
+            // ensure legacy iptables are used
+            RunProcess("update-alternatives", true, "--set iptables /usr/sbin/iptables-legacy");
+            RunProcess("update-alternatives", true, "--set ip6tables /usr/sbin/ip6tables-legacy");
         }
 
+        /// <inheritdoc />
         public override async Task<bool> BlockIPAddresses(string ruleNamePrefix, IEnumerable<string> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             IEnumerable<string> ipv4 = ipAddresses.Where(i => IPAddress.TryParse(i, out IPAddress obj) && obj.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
@@ -79,6 +89,7 @@ namespace DigitalRuby.IPBanCore
             return result;
         }
 
+        /// <inheritdoc />
         public override async Task<bool> BlockIPAddressesDelta(string ruleNamePrefix, IEnumerable<IPBanFirewallIPAddressDelta> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             List<IPBanFirewallIPAddressDelta> deltas4 = new(ipAddresses.Where(i => IPAddress.Parse(i.IPAddress).AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork));
@@ -91,6 +102,7 @@ namespace DigitalRuby.IPBanCore
             return result;
         }
 
+        /// <inheritdoc />
         public override async Task<bool> BlockIPAddresses(string ruleNamePrefix, IEnumerable<IPAddressRange> ranges, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             IEnumerable<IPAddressRange> ipv4 = ranges.Where(i => i.Begin.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && i.End.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
@@ -103,6 +115,7 @@ namespace DigitalRuby.IPBanCore
             return result;
         }
 
+        /// <inheritdoc />
         public override async Task<bool> AllowIPAddresses(IEnumerable<string> ipAddresses, CancellationToken cancelToken = default)
         {
             IEnumerable<string> ipv4 = ipAddresses.Where(i => IPAddress.TryParse(i, out IPAddress obj) && obj.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
@@ -115,6 +128,7 @@ namespace DigitalRuby.IPBanCore
             return result;
         }
 
+        /// <inheritdoc />
         public override async Task<bool> AllowIPAddresses(string ruleNamePrefix, IEnumerable<IPAddressRange> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             IEnumerable<IPAddressRange> ipv4 = ipAddresses.Where(i => IPAddressRange.TryParse(i, out IPAddressRange obj) && obj.Begin.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
@@ -127,6 +141,7 @@ namespace DigitalRuby.IPBanCore
             return result;
         }
 
+        /// <inheritdoc />
         public override void Truncate()
         {
             base.Truncate();

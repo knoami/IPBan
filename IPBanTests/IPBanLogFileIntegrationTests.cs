@@ -59,15 +59,17 @@ namespace DigitalRuby.IPBanTests
 
         public void Dispose() => GC.SuppressFinalize(this);
 
-        Task IIPBanDelegate.LoginAttemptFailed(string ip, string source, string userName, string machineGuid, string osName, string osVersion, int count, DateTime timestamp)
+        Task IIPBanDelegate.LoginAttemptFailed(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, int count, DateTime timestamp, IPAddressNotificationFlags notificationFlags)
         {
-            failedEvents.Add(new IPAddressLogEvent(ip, userName, source, count, IPAddressEventType.FailedLogin, timestamp));
+            failedEvents.Add(new IPAddressLogEvent(ip, userName, source, count, IPAddressEventType.FailedLogin, timestamp, notificationFlags: notificationFlags));
             return Task.CompletedTask;
         }
 
-        Task IIPBanDelegate.LoginAttemptSucceeded(string ip, string source, string userName, string machineGuid, string osName, string osVersion, int count, DateTime timestamp)
+        Task IIPBanDelegate.LoginAttemptSucceeded(string ip, string source, string userName, string machineGuid,
+            string osName, string osVersion, int count, DateTime timestamp, IPAddressNotificationFlags notificationFlags)
         {
-            successfulEvents.Add(new IPAddressLogEvent(ip, userName, source, count, IPAddressEventType.SuccessfulLogin, timestamp));
+            successfulEvents.Add(new IPAddressLogEvent(ip, userName, source, count, IPAddressEventType.SuccessfulLogin, timestamp, notificationFlags: notificationFlags));
             return Task.CompletedTask;
         }
 
@@ -88,7 +90,7 @@ namespace DigitalRuby.IPBanTests
             {
                 Assert.AreEqual("MSExchange", successfulEvents[i].Source);
                 Assert.AreEqual(IPAddressEventType.SuccessfulLogin, successfulEvents[i].Type);
-                Assert.AreEqual("user@example.com", successfulEvents[i].UserName);
+                Assert.AreEqual("user", successfulEvents[i].UserName);
             }
 
             // 37.49.225.153, UserName: p.kurowicki@gios.gov.pl, Source: MSExchange, Count: 1, Type: FailedLogin, Timestamp: 6/26/2021 3:01:36 PM}
@@ -103,7 +105,7 @@ namespace DigitalRuby.IPBanTests
                 Assert.AreEqual("MSExchange", failedEvents[i].Source);
                 if (i != failedEvents.Count - 2)
                 {
-                    Assert.AreEqual("user@example.com", failedEvents[i].UserName);
+                    Assert.AreEqual("user", failedEvents[i].UserName);
                 }
                 else
                 {

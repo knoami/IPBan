@@ -70,6 +70,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Access Duration.
+        /// </summary>
+        public static string AccessDuration {
+            get {
+                return ResourceManager.GetString("AccessDuration", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Add.
         /// </summary>
         public static string Add {
@@ -97,7 +106,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Threshold,hours to examine common user names and ban attackers that exceed threshold within hours timespan. Set to empty to disable this feature..
+        ///   Looks up a localized string similar to Threshold,hours to examine common user names and ban attackers that meet a threshold within hours timespan. Set to empty to disable this feature..
         /// </summary>
         public static string AggregateBanUserNamesTooltip {
             get {
@@ -160,11 +169,56 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to ASN Blocklist.
+        /// </summary>
+        public static string AsnBlacklist {
+            get {
+                return ResourceManager.GetString("AsnBlacklist", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ASN to block (autonymous system number).
+        /// </summary>
+        public static string AsnBlacklistTooltip {
+            get {
+                return ResourceManager.GetString("AsnBlacklistTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Start typing and select ASN that appear from the dropdown, can use id or name.
+        /// </summary>
+        public static string AsnBlockHelpLabel {
+            get {
+                return ResourceManager.GetString("AsnBlockHelpLabel", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to {0} entries in the ASN block list.
+        /// </summary>
+        public static string AsnBlockRangeEntryCount {
+            get {
+                return ResourceManager.GetString("AsnBlockRangeEntryCount", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Auto Refresh.
         /// </summary>
         public static string AutoRefresh {
             get {
                 return ResourceManager.GetString("AutoRefresh", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Auto Update.
+        /// </summary>
+        public static string AutoUpdate {
+            get {
+                return ResourceManager.GetString("AutoUpdate", resourceCulture);
             }
         }
         
@@ -250,6 +304,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Blacklister.
+        /// </summary>
+        public static string Blacklister {
+            get {
+                return ResourceManager.GetString("Blacklister", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Blocked and Allowed Packets by Country last 24 hours.
         /// </summary>
         public static string BlockedPacketsByCountry {
@@ -313,6 +376,24 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Clear Failures on Login Success.
+        /// </summary>
+        public static string ClearFailedLoginsOnSuccessfulLogin {
+            get {
+                return ResourceManager.GetString("ClearFailedLoginsOnSuccessfulLogin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to When an ip address receives a successful login, whether to clear all the failed logins for that ip from memory.
+        /// </summary>
+        public static string ClearFailedLoginsOnSuccessfulLoginTooltip {
+            get {
+                return ResourceManager.GetString("ClearFailedLoginsOnSuccessfulLoginTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Client Configuration.
         /// </summary>
         public static string ClientConfiguration {
@@ -327,6 +408,33 @@ namespace DigitalRuby.IPBanCore {
         public static string ClientConfigurationOverrideTooltip {
             get {
                 return ResourceManager.GetString("ClientConfigurationOverrideTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Cloudflare api token to add firewall rules.
+        /// </summary>
+        public static string Cloudflare_ApiToken_Description {
+            get {
+                return ResourceManager.GetString("Cloudflare_ApiToken_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Max count of ips to put in Cloudflare firewall, 10000 max.
+        /// </summary>
+        public static string Cloudflare_MaxCount_Description {
+            get {
+                return ResourceManager.GetString("Cloudflare_MaxCount_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Comma separated zone ids to add firewall rules to.
+        /// </summary>
+        public static string Cloudflare_ZoneIds_Description {
+            get {
+                return ResourceManager.GetString("Cloudflare_ZoneIds_Description", resourceCulture);
             }
         }
         
@@ -417,6 +525,33 @@ namespace DigitalRuby.IPBanCore {
         public static string CountryBlacklistInvertTooltip {
             get {
                 return ResourceManager.GetString("CountryBlacklistInvertTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Override Country Blacklist.
+        /// </summary>
+        public static string CountryBlacklistOverride {
+            get {
+                return ResourceManager.GetString("CountryBlacklistOverride", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Country Blacklist Precise.
+        /// </summary>
+        public static string CountryBlacklistPrecise {
+            get {
+                return ResourceManager.GetString("CountryBlacklistPrecise", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Use precise country ip addresses (requires about 7x more RAM).
+        /// </summary>
+        public static string CountryBlacklistPreciseTooltip {
+            get {
+                return ResourceManager.GetString("CountryBlacklistPreciseTooltip", resourceCulture);
             }
         }
         
@@ -516,6 +651,15 @@ namespace DigitalRuby.IPBanCore {
         public static string Direction {
             get {
                 return ResourceManager.GetString("Direction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Disable Notification Flags.
+        /// </summary>
+        public static string DisableNotificationFlags {
+            get {
+                return ResourceManager.GetString("DisableNotificationFlags", resourceCulture);
             }
         }
         
@@ -943,6 +1087,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Id.
+        /// </summary>
+        public static string Id {
+            get {
+                return ResourceManager.GetString("Id", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to IP Address.
         /// </summary>
         public static string IPAddress {
@@ -952,38 +1105,11 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Blocked IP Addresses.
+        ///   Looks up a localized string similar to IPAddresses.
         /// </summary>
-        public static string IPAddressEventFlags_BlockedIPAddress {
+        public static string IPAddresses {
             get {
-                return ResourceManager.GetString("IPAddressEventFlags_BlockedIPAddress", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Looks up a localized string similar to Failed Logins.
-        /// </summary>
-        public static string IPAddressEventFlags_FailedLogin {
-            get {
-                return ResourceManager.GetString("IPAddressEventFlags_FailedLogin", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Looks up a localized string similar to Successful Logins.
-        /// </summary>
-        public static string IPAddressEventFlags_SuccessfulLogin {
-            get {
-                return ResourceManager.GetString("IPAddressEventFlags_SuccessfulLogin", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Looks up a localized string similar to Who Is.
-        /// </summary>
-        public static string IPAddressEventFlags_WhoIs {
-            get {
-                return ResourceManager.GetString("IPAddressEventFlags_WhoIs", resourceCulture);
+                return ResourceManager.GetString("IPAddresses", resourceCulture);
             }
         }
         
@@ -993,6 +1119,78 @@ namespace DigitalRuby.IPBanCore {
         public static string IPAddressEvents {
             get {
                 return ResourceManager.GetString("IPAddressEvents", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Blocked IP Addresses.
+        /// </summary>
+        public static string IPAddressNotificationFlags_BlockedIPAddress {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_BlockedIPAddress", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Daily Report.
+        /// </summary>
+        public static string IPAddressNotificationFlags_DailyReport {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_DailyReport", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Failed Logins.
+        /// </summary>
+        public static string IPAddressNotificationFlags_FailedLogin {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_FailedLogin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Monthly Report.
+        /// </summary>
+        public static string IPAddressNotificationFlags_MonthlyReport {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_MonthlyReport", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Successful Logins.
+        /// </summary>
+        public static string IPAddressNotificationFlags_SuccessfulLogin {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_SuccessfulLogin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Web Admin Successful Logins.
+        /// </summary>
+        public static string IPAddressNotificationFlags_SuccessfulWebAdminLogin {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_SuccessfulWebAdminLogin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Weekly Report.
+        /// </summary>
+        public static string IPAddressNotificationFlags_WeeklyReport {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_WeeklyReport", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Who Is.
+        /// </summary>
+        public static string IPAddressNotificationFlags_WhoIs {
+            get {
+                return ResourceManager.GetString("IPAddressNotificationFlags_WhoIs", resourceCulture);
             }
         }
         
@@ -1047,6 +1245,24 @@ namespace DigitalRuby.IPBanCore {
         public static string IPBlacklistTooltip {
             get {
                 return ResourceManager.GetString("IPBlacklistTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to IPThreat Api Key.
+        /// </summary>
+        public static string IPThreatApiKey {
+            get {
+                return ResourceManager.GetString("IPThreatApiKey", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Api key for https://ipthreat.net.
+        /// </summary>
+        public static string IPThreatApiKeyTooltip {
+            get {
+                return ResourceManager.GetString("IPThreatApiKeyTooltip", resourceCulture);
             }
         }
         
@@ -1227,6 +1443,15 @@ namespace DigitalRuby.IPBanCore {
         public static string Machine {
             get {
                 return ResourceManager.GetString("Machine", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Machine Access.
+        /// </summary>
+        public static string MachineAccess {
+            get {
+                return ResourceManager.GetString("MachineAccess", resourceCulture);
             }
         }
         
@@ -1420,7 +1645,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to POST a JSON object to an end point for every notification. Contains Subject, Body and ToAddresses fields..
+        ///   Looks up a localized string similar to Url to POST a json request for notifications. The posted json contains Subject, Body and ToAddresses fields. Advanced: Use Uri=[uri] | Template=[template] | Format=[plain or markdown or slack, leave off for html]. Template will transform notification to your json. Example: { &quot;text&quot;:&quot;###SUBJECT###&quot;,&quot;blocks&quot;: [ { &quot;type&quot;: &quot;section&quot;, &quot;text&quot;: { &quot;type&quot;: &quot;mrkdwn&quot;, &quot;text&quot;: &quot;###SUBJECT###\n\n###BODY###&quot; } } ] } | format = slack | Uri = https://hooks.slack.com/services/KEY1/KEY2.
         /// </summary>
         public static string NotificationWebHookTooltip {
             get {
@@ -1443,6 +1668,15 @@ namespace DigitalRuby.IPBanCore {
         public static string NotifyOnlyTooltip {
             get {
                 return ResourceManager.GetString("NotifyOnlyTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Options.
+        /// </summary>
+        public static string Options {
+            get {
+                return ResourceManager.GetString("Options", resourceCulture);
             }
         }
         
@@ -1569,6 +1803,15 @@ namespace DigitalRuby.IPBanCore {
         public static string PleaseWait {
             get {
                 return ResourceManager.GetString("PleaseWait", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Plugins.
+        /// </summary>
+        public static string Plugins {
+            get {
+                return ResourceManager.GetString("Plugins", resourceCulture);
             }
         }
         
@@ -1762,6 +2005,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Remaining Uses.
+        /// </summary>
+        public static string RemainingUses {
+            get {
+                return ResourceManager.GetString("RemainingUses", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Remember Me.
         /// </summary>
         public static string RememberMe {
@@ -1803,6 +2055,15 @@ namespace DigitalRuby.IPBanCore {
         public static string RemoveAllLicenseKeys {
             get {
                 return ResourceManager.GetString("RemoveAllLicenseKeys", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Request a plugin.
+        /// </summary>
+        public static string RequestAPlugin {
+            get {
+                return ResourceManager.GetString("RequestAPlugin", resourceCulture);
             }
         }
         
@@ -2086,6 +2347,24 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Self signed certificate.
+        /// </summary>
+        public static string SslSelfSignedCertificate {
+            get {
+                return ResourceManager.GetString("SslSelfSignedCertificate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Turn on if your certificate is self signed.
+        /// </summary>
+        public static string SslSelfSignedCertificateTooltip {
+            get {
+                return ResourceManager.GetString("SslSelfSignedCertificateTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Status.
         /// </summary>
         public static string Status {
@@ -2257,6 +2536,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Url.
+        /// </summary>
+        public static string Url {
+            get {
+                return ResourceManager.GetString("Url", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Used.
         /// </summary>
         public static string Used {
@@ -2307,6 +2595,24 @@ namespace DigitalRuby.IPBanCore {
         public static string UserNameTooltip {
             get {
                 return ResourceManager.GetString("UserNameTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to User name truncation chars.
+        /// </summary>
+        public static string UserNameTruncationChars {
+            get {
+                return ResourceManager.GetString("UserNameTruncationChars", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Characters to truncate user name at or empty for none. @ sign can be used to strip domain name off email or active directory login for example.
+        /// </summary>
+        public static string UserNameTruncationCharsTooltip {
+            get {
+                return ResourceManager.GetString("UserNameTruncationCharsTooltip", resourceCulture);
             }
         }
         
@@ -2379,6 +2685,15 @@ namespace DigitalRuby.IPBanCore {
         public static string Welcome {
             get {
                 return ResourceManager.GetString("Welcome", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whitelist Urls.
+        /// </summary>
+        public static string WhitelistUrls {
+            get {
+                return ResourceManager.GetString("WhitelistUrls", resourceCulture);
             }
         }
         

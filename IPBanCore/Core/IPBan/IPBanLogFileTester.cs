@@ -48,6 +48,10 @@ namespace DigitalRuby.IPBanCore
         /// Test a log file
         /// </summary>
         /// <param name="fileName">Log file</param>
+        /// <param name="regexFailureFile">Failure regex file</param>
+        /// <param name="regexFailureTimestampFormat">Failure timestamp format</param>
+        /// <param name="regexSuccessFile">Success regex file</param>
+        /// <param name="regexSuccessTimestampFormat">Success timestamp format</param>
         public static void RunLogFileTest(string fileName,
             string regexFailureFile,
             string regexFailureTimestampFormat,
@@ -59,13 +63,13 @@ namespace DigitalRuby.IPBanCore
                 Dns = new DefaultDnsLookup(),
                 FailedLoginThreshold = 3,
                 FailedLogLevel = LogLevel.Warning,
-                LoginHandler = new LogFileWriter(),
+                EventHandler = new LogFileWriter(),
                 MaxFileSizeBytes = 0,
                 PathAndMask = fileName.Trim(),
                 PingIntervalMilliseconds = 0,
-                RegexFailure = (File.Exists(regexFailureFile) && regexFailureFile.Length > 2 ? IPBanConfig.ParseRegex(File.ReadAllText(regexFailureFile)) : null),
+                RegexFailure = (File.Exists(regexFailureFile) && regexFailureFile.Length > 2 ? IPBanRegexParser.ParseRegex(File.ReadAllText(regexFailureFile), true) : null),
                 RegexFailureTimestampFormat = regexFailureTimestampFormat.Trim('.'),
-                RegexSuccess = (File.Exists(regexSuccessFile) && regexSuccessFile.Length > 2 ? IPBanConfig.ParseRegex(File.ReadAllText(regexSuccessFile)) : null),
+                RegexSuccess = (File.Exists(regexSuccessFile) && regexSuccessFile.Length > 2 ? IPBanRegexParser.ParseRegex(File.ReadAllText(regexSuccessFile), true) : null),
                 RegexSuccessTimestampFormat = regexSuccessTimestampFormat.Trim('.'),
                 Source = "test",
                 SuccessfulLogLevel = LogLevel.Warning

@@ -24,8 +24,9 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
+using System.IO.Compression;
+using System.IO;
 using System.Net;
-using System.Net.Cache;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
@@ -45,10 +46,14 @@ namespace DigitalRuby.IPBanCore
         /// <param name="uri">Uri</param>
         /// <param name="postJson">Optional json to post for a POST request, else GET is used</param>
         /// <param name="headers">Optional http headers</param>
+        /// <param name="method">Override the method</param>
         /// <param name="cancelToken">Cancel token</param>
         /// <returns>Task of response byte[]</returns>
-        Task<byte[]> MakeRequestAsync(Uri uri, string postJson = null, IEnumerable<KeyValuePair<string, object>> headers = null,
-            CancellationToken cancelToken = default) => throw new NotImplementedException();
+        Task<byte[]> MakeRequestAsync(Uri uri,
+            byte[] postJson = null,
+            IEnumerable<KeyValuePair<string, object>> headers = null,
+            string method = null,
+            CancellationToken cancelToken = default);
     }
 
     /// <summary>
@@ -80,7 +85,11 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public static long LocalRequestCount { get { return localRequestCount; } }
 
-        public async Task<byte[]> MakeRequestAsync(Uri uri, string postJson = null, IEnumerable<KeyValuePair<string, object>> headers = null,
+        /// <inheritdoc />
+        public async Task<byte[]> MakeRequestAsync(Uri uri,
+            byte[] postJson = null,
+            IEnumerable<KeyValuePair<string, object>> headers = null,
+            string method = null,
             CancellationToken cancelToken = default)
         {
             if (uri.Host.StartsWith("localhost", StringComparison.OrdinalIgnoreCase) ||
@@ -106,8 +115,10 @@ namespace DigitalRuby.IPBanCore
                     versionAssembly = GetType().Assembly;
                 }
             }
-            HttpRequestMessage msg = new();
-            msg.RequestUri = uri;
+            HttpRequestMessage msg = new()
+            {
+                RequestUri = uri
+            };
             msg.Headers.Add("User-Agent", versionAssembly.GetName().Name);
             if (headers != null)
             {
@@ -117,22 +128,48 @@ namespace DigitalRuby.IPBanCore
                 }
             }
             byte[] response;
-            if (string.IsNullOrWhiteSpace(postJson))
+            if (postJson is null || postJson.Length == 0)
             {
                 msg.Method = HttpMethod.Get;
             }
             else
             {
-                msg.Headers.Add("Cache-Control", "no-cache");
                 msg.Method = HttpMethod.Post;
-                msg.Content = new StringContent(postJson, Encoding.UTF8, "application/json");
+                msg.Headers.Add("Cache-Control", "no-cache");
+                msg.Content = new ByteArrayContent(postJson);
+                msg.Content.Headers.Add("Content-Type", "application/json; charset=utf-8");
+            }
+
+            // set override method if available
+            if (!string.IsNullOrWhiteSpace(method))
+            {
+                msg.Method = new HttpMethod(method);
             }
 
             var responseMsg = await client.SendAsync(msg, cancelToken);
             response = await responseMsg.Content.ReadAsByteArrayAsync(cancelToken);
             if (!responseMsg.IsSuccessStatusCode)
             {
-                throw new WebException("Request to url " + uri + " failed, status: " + responseMsg.StatusCode + ", response: " + Encoding.UTF8.GetString(response));
+                throw new HttpRequestException("Request to url " + uri + " failed, status: " + responseMsg.StatusCode + ", response: " + Encoding.UTF8.GetString(response),
+                    null, responseMsg.StatusCode);
+            }
+            else if (response is not null &&
+                response.Length != 0 &&
+                uri.AbsolutePath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    // in case response somehow got gzip decompressed already, catch exception and keep response as is
+                    MemoryStream decompressStream = new();
+                    {
+                        using GZipStream gz = new(new MemoryStream(response), CompressionMode.Decompress, true);
+                        gz.CopyTo(decompressStream);
+                    }
+                    response = decompressStream.ToArray();
+                }
+                catch
+                {
+                }
             }
             return response;
         }
