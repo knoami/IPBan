@@ -22,6 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using DigitalRuby.IPBanCore;
+
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -30,14 +35,10 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-using DigitalRuby.IPBanCore;
-
-using NUnit.Framework;
-
 namespace DigitalRuby.IPBanTests
 {
     [TestFixture]
-    public class IPBanUriFirewallRuleTests : IIsWhitelisted, IHttpRequestMaker
+    public class IPBanUriFirewallRuleTests : IFirewallTaskRunner, IIsWhitelisted, IHttpRequestMaker
     {
         private static readonly IPAddressRange range1 = IPAddressRange.Parse("99.99.99.99");
         private static readonly IPAddressRange range2 = IPAddressRange.Parse("100.100.100.100/31");
@@ -60,18 +61,18 @@ namespace DigitalRuby.IPBanTests
             try
             {
                 Uri uriObj = (tempFile == null ? new Uri(uri) : new Uri("file://" + tempFile));
-                using IPBanUriFirewallRule rule = new(memoryFirewall, this, this, "TestPrefix", TimeSpan.FromMinutes(1.0), uriObj);
+                using IPBanUriFirewallRule rule = new(memoryFirewall, this, this, this, "TestPrefix", TimeSpan.FromMinutes(1.0), uriObj);
                 if (tempFile != null)
                 {
                     File.WriteAllText(tempFile, GetTestFile());
                 }
                 await rule.Update();
-                Assert.AreEqual(1, memoryFirewall.GetRuleNames("TestPrefix").ToArray().Length);
+                ClassicAssert.AreEqual(1, memoryFirewall.GetRuleNames("TestPrefix").ToArray().Length);
                 var ranges = memoryFirewall.EnumerateIPAddresses("TestPrefix").ToArray();
-                Assert.Contains(range1, ranges);
-                Assert.Contains(range2, ranges);
-                Assert.Contains(range3, ranges);
-                Assert.AreEqual(0, memoryFirewall.EnumerateAllowedIPAddresses().ToArray().Length);
+                ClassicAssert.Contains(range1, ranges);
+                ClassicAssert.Contains(range2, ranges);
+                ClassicAssert.Contains(range3, ranges);
+                ClassicAssert.AreEqual(0, memoryFirewall.EnumerateAllowedIPAddresses().ToArray().Length);
             }
             finally
             {
@@ -100,9 +101,9 @@ namespace DigitalRuby.IPBanTests
         [Test]
         public async Task TestNoOp()
         {
-            using IPBanUriFirewallRule rule = new(memoryFirewall, this, this, "TestPrefix", TimeSpan.FromMinutes(1.0), new Uri("file://c:/temp/qweoqpwejqowtempfirewall.txt"));
+            using IPBanUriFirewallRule rule = new(memoryFirewall, this, this, this, "TestPrefix", TimeSpan.FromMinutes(1.0), new Uri("file://c:/temp/qweoqpwejqowtempfirewall.txt"));
             await rule.Update();
-            Assert.AreEqual(0, memoryFirewall.EnumerateIPAddresses().ToArray().Length);
+            ClassicAssert.AreEqual(0, memoryFirewall.EnumerateIPAddresses().ToArray().Length);
         }
 
         [Test]
@@ -117,14 +118,19 @@ namespace DigitalRuby.IPBanTests
             await TestFileInternal("http://localhost");
         }
 
-        public bool IsWhitelisted(string entry)
+        public bool IsWhitelisted(string entry, out string reason)
         {
-            return memoryFirewall.IsIPAddressAllowed(entry);
+            return memoryFirewall.IsIPAddressAllowed(entry, out reason);
         }
 
-        public bool IsWhitelisted(IPAddressRange range)
+        public bool IsWhitelisted(IPAddressRange range, out string reason)
         {
-            return memoryFirewall.IsIPAddressAllowed(range.ToString());
+            return memoryFirewall.IsIPAddressAllowed(range.ToString(), out reason);
+        }
+
+        public Task RunFirewallTask<T>(Func<T, CancellationToken, Task> action, T state, string name)
+        {
+            return action(state, default);
         }
     }
 }

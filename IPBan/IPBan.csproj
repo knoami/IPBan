@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
-		<TargetFrameworks>net6.0</TargetFrameworks>
+		<TargetFramework>net9.0</TargetFramework>
 		<PlatformTarget>AnyCPU</PlatformTarget>
 		<Company>Digital Ruby, LLC</Company>
 		<Copyright>(c) 2010 Digital Ruby, LLC</Copyright>
@@ -20,17 +20,18 @@
 		<AssemblyName>DigitalRuby.IPBan</AssemblyName>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 		<PreserveCompilationContext>true</PreserveCompilationContext>
-		<PublishTrimmed>true</PublishTrimmed>
 		<GenerateSerializationAssemblies>Off</GenerateSerializationAssemblies>
 		<ApplicationIcon>../ipban_favicon.ico</ApplicationIcon>
 		<BuiltInComInteropSupport>true</BuiltInComInteropSupport>
 		<ServerGarbageCollection>false</ServerGarbageCollection>
+		<TrimMode>partial</TrimMode>
+		<JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<Content Include="../ipban_favicon.ico" Link="ipban_favicon.ico" />
 		<Content Include="../README.md" Link="README.md">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 	</ItemGroup>
 

@@ -25,18 +25,12 @@ SOFTWARE.
 #region Imports
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Xml;
-using System.Xml.Serialization;
 
 #endregion Imports
 
@@ -47,17 +41,18 @@ namespace DigitalRuby.IPBanCore
     /// </summary>
     public static class IPBanRegexParser
     {
-        private static readonly Dictionary<string, Regex> regexCacheCompiled = new();
-        private static readonly Dictionary<string, Regex> regexCacheNotCompiled = new();
-        private static readonly char[] regexTrimChars = new[]
-{
+        private static readonly Dictionary<string, Regex> regexCacheCompiled = [];
+        private static readonly Dictionary<string, Regex> regexCacheNotCompiled = [];
+        private static readonly char[] regexTrimChars =
+[
             ',', ';', '|', '_', '-', '/', '\'', '\"', '(', ')', '[', ']', '{', '}', ' ', '\t', '\r', '\n'
-        };
+        ];
+        private static readonly char[] ipTrimChars = [' ', '\t', '\r', '\n', '.', ';', '|', '-', '%', '@'];
 
         /// <summary>
         /// Allow truncating user names at any of these chars or empty array for no truncation
         /// </summary>
-        private static char[] truncateUserNameCharsArray = Array.Empty<char>();
+        private static char[] truncateUserNameCharsArray = [];
 
         /// <summary>
         /// Truncate user name chars value
@@ -65,7 +60,7 @@ namespace DigitalRuby.IPBanCore
         public static string TruncateUserNameChars
         {
             get => new(truncateUserNameCharsArray);
-            set => truncateUserNameCharsArray = value?.ToCharArray() ?? Array.Empty<char>();
+            set => truncateUserNameCharsArray = value?.ToCharArray() ?? [];
         }
 
         /// <summary>
@@ -77,6 +72,11 @@ namespace DigitalRuby.IPBanCore
         public static Regex ParseRegex(string text, bool multiline = false)
         {
             const int maxCacheSize = 200;
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return null;
+            }
 
             text = (text ?? string.Empty).Trim();
             if (text.Length == 0)
@@ -150,6 +150,9 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Cleaned multi-line string</returns>
         public static string CleanMultilineString(string text)
         {
+            const string cDataStart = "<![CDATA[";
+            const string cDataEnd = "]]>";
+
             text = (text ?? string.Empty).Trim();
             if (text.Length == 0)
             {
@@ -167,7 +170,12 @@ namespace DigitalRuby.IPBanCore
                     sb.Append('\n');
                 }
             }
-            return sb.ToString().Trim();
+            text = sb.ToString().Trim();
+            if (text.StartsWith(cDataStart) && text.EndsWith(cDataEnd))
+            {
+                text = text[cDataStart.Length..^cDataEnd.Length];
+            }
+            return text;
         }
 
         /// <summary>
@@ -255,7 +263,7 @@ namespace DigitalRuby.IPBanCore
 
                 // check for timestamp group
                 var timestampGroup = match.Groups["timestamp"];
-                if (timestampGroup != null && timestampGroup.Success)
+                if (timestampGroup is not null && timestampGroup.Success)
                 {
                     string toParse = timestampGroup.Value.Trim(regexTrimChars);
                     if (string.IsNullOrWhiteSpace(timestampFormat) ||
@@ -267,6 +275,21 @@ namespace DigitalRuby.IPBanCore
                     }
                 }
 
+                // try utc timestamp group, if any
+                if (timestamp == default &&
+                    (timestampGroup = match.Groups["timestamp_utc"]) is not null &&
+                    timestampGroup.Success)
+                {
+                    string toParse = timestampGroup.Value.Trim(regexTrimChars);
+                    if (string.IsNullOrWhiteSpace(timestampFormat) ||
+                        !DateTime.TryParseExact(toParse, timestampFormat.Trim(), CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal, out timestamp))
+                    {
+                        DateTime.TryParse(toParse, CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal, out timestamp);
+                    }
+                }
+
                 // check if the regex had an ipadddress group
                 var ipAddressGroup = match.Groups["ipaddress"];
                 if (ipAddressGroup is null || !ipAddressGroup.Success)
@@ -275,38 +298,39 @@ namespace DigitalRuby.IPBanCore
                 }
                 if (ipAddressGroup != null && ipAddressGroup.Success && !string.IsNullOrWhiteSpace(ipAddressGroup.Value))
                 {
-                    string tempIPAddress = ipAddressGroup.Value.Trim();
-
-                    // in case of IP:PORT format, try a second time, stripping off the :PORT, saves having to do this in all
-                    //  the different ip regex.
-                    int lastColon = tempIPAddress.LastIndexOf(':');
-                    bool isValidIPAddress = IPAddress.TryParse(tempIPAddress, out IPAddress tmp);
-                    if (isValidIPAddress || (lastColon >= 0 && IPAddress.TryParse(tempIPAddress[..lastColon], out tmp)))
+                    string tempIPAddress = ipAddressGroup.Value.Trim(ipTrimChars);
+                    if (!string.IsNullOrWhiteSpace(tempIPAddress))
                     {
-                        ipAddress = tmp.ToString();
-                    }
-
-                    // if we are parsing anything as ip address (including dns names)
-                    if (string.IsNullOrWhiteSpace(ipAddress) &&
-                        dns != null &&
-                        ipAddressGroup.Name == "ipaddress" &&
-                        tempIPAddress != Environment.MachineName &&
-                        tempIPAddress != "-")
-                    {
-                        // Check Host by name
-                        Logger.Info("Parsing as IP failed for {0}, info: {1}. Checking dns...", tempIPAddress, info);
-                        try
+                        // in case of IP:PORT format, try a second time, stripping off the :PORT, saves having to do this in all
+                        //  the different ip regex.
+                        int lastColon = tempIPAddress.LastIndexOf(':');
+                        bool isValidIPAddress = IPAddress.TryParse(tempIPAddress, out IPAddress tmp);
+                        if (isValidIPAddress || (lastColon >= 0 && IPAddress.TryParse(tempIPAddress[..lastColon], out tmp)))
                         {
-                            IPAddress[] ipAddresses = dns.GetHostAddressesAsync(tempIPAddress).Sync();
-                            if (ipAddresses != null && ipAddresses.Length > 0)
-                            {
-                                ipAddress = ipAddresses.FirstOrDefault().ToString();
-                                Logger.Info("Dns result '{0}' = '{1}'", tempIPAddress, ipAddress);
-                            }
+                            ipAddress = tmp.ToString();
                         }
-                        catch
+
+                        // if we are parsing anything as ip address (including dns names)
+                        if (string.IsNullOrWhiteSpace(ipAddress) &&
+                            dns != null &&
+                            ipAddressGroup.Name == "ipaddress" &&
+                            tempIPAddress != Environment.MachineName)
                         {
-                            Logger.Info("Parsing as dns failed '{0}'", tempIPAddress);
+                            // Check Host by name
+                            Logger.Info("Parsing as IP failed for {0}, info: {1}. Checking dns...", tempIPAddress, info);
+                            try
+                            {
+                                IPAddress[] ipAddresses = dns.GetHostAddressesAsync(tempIPAddress).Sync();
+                                if (ipAddresses != null && ipAddresses.Length > 0)
+                                {
+                                    ipAddress = ipAddresses.FirstOrDefault().ToString();
+                                    Logger.Info("Dns result '{0}' = '{1}'", tempIPAddress, ipAddress);
+                                }
+                            }
+                            catch
+                            {
+                                Logger.Info("Parsing as dns failed '{0}'", tempIPAddress);
+                            }
                         }
                     }
                 }

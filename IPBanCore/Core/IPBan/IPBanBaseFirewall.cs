@@ -25,6 +25,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -43,14 +44,19 @@ namespace DigitalRuby.IPBanCore
         protected bool Disposed { get; private set; }
 
         /// <summary>
+        /// Rule prefix - defaults to 'IPBan_'
+        /// </summary>
+        public string RulePrefix { get; set; } = "IPBan_";
+
+        /// <summary>
         /// Allow rule prefix
         /// </summary>
-        protected string AllowRulePrefix { get; private set; }
+        public string AllowRulePrefix { get; set; }
 
         /// <summary>
         /// Block rule prefix
         /// </summary>
-        protected string BlockRulePrefix { get; private set; }
+        public string BlockRulePrefix { get; set; }
 
         /// <summary>
         /// Packet event handler
@@ -65,7 +71,7 @@ namespace DigitalRuby.IPBanCore
         /// <inheritdoc />
         public void SendPacketEvents(IReadOnlyCollection<PacketEvent> events)
         {
-            if (events.Count != 0)
+            if (events.Count != 0 && PacketEvent is not null)
             {
                 var eventsCopy = events.ToArray();
                 Logger.Debug("Sending {0} packet events", eventsCopy.Length);
@@ -130,6 +136,12 @@ namespace DigitalRuby.IPBanCore
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// Compile into an optimized in memory representation
+        /// </summary>
+        /// <returns>Optimized version</returns>
+        public abstract IPBanMemoryFirewall Compile();
+
         /// <inheritdoc />
         public abstract Task<bool> BlockIPAddresses(string ruleNamePrefix, IEnumerable<string> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default);
 
@@ -146,10 +158,17 @@ namespace DigitalRuby.IPBanCore
         public abstract Task<bool> AllowIPAddresses(string ruleNamePrefix, IEnumerable<IPAddressRange> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default);
 
         /// <inheritdoc />
-        public abstract bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = -1);
-
-        /// <inheritdoc />
-        public abstract bool IsIPAddressAllowed(string ipAddress, int port = -1);
+        public virtual IReadOnlyList<(bool blocked, bool allowed, string ruleName)> Query(IReadOnlyCollection<System.Net.IPEndPoint> ipAddresses)
+        {
+            List<(bool, bool, string)> result = [];
+            var memoryFirewall = Compile();
+            foreach (var ipAddress in ipAddresses)
+            {
+                var blocked = memoryFirewall.IsIPAddressBlocked(ipAddress.Address, out var ruleName, out var allowed, ipAddress.Port);
+                result.Add((blocked, allowed, ruleName));
+            }
+            return result;
+        }
 
         /// <inheritdoc />
         public abstract IEnumerable<string> GetRuleNames(string ruleNamePrefix = null);
@@ -158,22 +177,20 @@ namespace DigitalRuby.IPBanCore
         public abstract bool DeleteRule(string ruleName);
 
         /// <inheritdoc />
-        public abstract IEnumerable<string> EnumerateBannedIPAddresses();
+        public abstract IEnumerable<string> EnumerateBannedIPAddresses(string ruleNamePrefix = null);
 
         /// <inheritdoc />
-        public abstract IEnumerable<string> EnumerateAllowedIPAddresses();
+        public abstract IEnumerable<string> EnumerateAllowedIPAddresses(string ruleNamePrefix = null);
 
         /// <inheritdoc />
         public abstract IEnumerable<IPAddressRange> EnumerateIPAddresses(string ruleNamePrefix = null);
+
+        /// <inheritdoc />
+        public abstract string GetPorts(string ruleName);
 
         /// <summary>
         /// Truncate
         /// </summary>
         public abstract void Truncate();
-
-        /// <summary>
-        /// Rule prefix - defaults to 'IPBan_'
-        /// </summary>
-        public string RulePrefix { get; } = "IPBan_";
     }
 }

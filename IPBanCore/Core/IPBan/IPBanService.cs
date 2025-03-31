@@ -26,12 +26,9 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
@@ -56,15 +53,14 @@ namespace DigitalRuby.IPBanCore
             OSVersion = OSUtility.Version;
 
             // by default, all IPBan services will parse log files
-            updaters.Add(new IPBanLogFileManager(this));
+            updaters.Add(new IPBanLogManager(this));
 
             var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? string.Empty;
             var appName = Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty;
             appName = (appName.Contains("ipbanpro", StringComparison.OrdinalIgnoreCase) ? "ipbanpro" : "ipban");
             AppName = appName + " " + version;
-            cycleActions = new (string, Func<CancellationToken, Task>)[]
-            {
-                ("GC", _cancelToken => { GC.GetTotalMemory(true); return Task.CompletedTask; }),
+            cycleActions =
+            [
                 (nameof(UpdateConfiguration), UpdateConfiguration),
                 (nameof(SetNetworkInfo), SetNetworkInfo),
                 (nameof(UpdateDelegate), UpdateDelegate),
@@ -77,16 +73,16 @@ namespace DigitalRuby.IPBanCore
                 (nameof(RunFirewallTasks), RunFirewallTasks),
                 (nameof(OnUpdate), cancelToken => OnUpdate(cancelToken)),
                 (nameof(ShowRunningMessage), ShowRunningMessage)
-            };
+            ];
         }
 
         /// <summary>
         /// Create an IPBanService by searching all types in all assemblies
         /// </summary>
         /// <returns>IPBanService (if not found an exception is thrown)</returns>
-        public static T CreateService<T>() where T : IPBanService
+        public static T CreateService<T>() where T : IPBanService, new()
         {
-            return Activator.CreateInstance(typeof(T), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, null, null) as T;
+            return new T();
         }
 
         /// <summary>
@@ -142,7 +138,7 @@ namespace DigitalRuby.IPBanCore
             var eventsArray = events.ToArray();
             lock (pendingLogEvents)
             {
-                pendingLogEvents.AddRange(eventsArray);
+                pendingLogEvents.AddRange(eventsArray.Where(e => e is not null));
             }
         }
 
@@ -226,7 +222,7 @@ namespace DigitalRuby.IPBanCore
         /// Initialize and start the service
         /// </summary>
         /// <param name="cancelToken">Cancel token</param>
-        public Task RunAsync(CancellationToken cancelToken)
+        public async Task RunAsync(CancellationToken cancelToken)
         {
             CancelToken = cancelToken;
 
@@ -245,7 +241,11 @@ namespace DigitalRuby.IPBanCore
                     // add some services
                     AddUpdater(new IPBanUnblockIPAddressesUpdater(this, Path.Combine(AppContext.BaseDirectory, "unban*.txt")));
                     AddUpdater(new IPBanBlockIPAddressesUpdater(this, Path.Combine(AppContext.BaseDirectory, "ban*.txt")));
-                    AddUpdater(DnsList);
+                    if (DnsList is not null)
+                    {
+                        await DnsList.Update(cancelToken);
+                        AddUpdater(DnsList);
+                    }
                     AddUpdater(IPThreatUploader ??= new IPBanIPThreatUploader(this));
 
                     // start delegate if we have one
@@ -262,7 +262,7 @@ namespace DigitalRuby.IPBanCore
                     // setup cycle timer if needed
                     if (!ManualCycle)
                     {
-                        return RunCycleInBackground(cancelToken);
+                        await RunCycleInBackground(cancelToken);
                     }
                 }
                 catch (Exception ex)
@@ -273,8 +273,6 @@ namespace DigitalRuby.IPBanCore
                     }
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -372,26 +370,23 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        /// <summary>
-        /// Run a task on the firewall queue
-        /// </summary>
-        /// <typeparam name="T">Type of state</typeparam>
-        /// <param name="action">Action to run</param>
-        /// <param name="state">State</param>
-        public void RunFirewallTask<T>(Func<T, CancellationToken, Task> action, T state)
+        /// <inheritdoc />
+        public Task RunFirewallTask<T>(Func<T, CancellationToken, Task> action, T state, string name)
         {
             if (!IsRunning || CancelToken.IsCancellationRequested)
             {
-                return;
+                return Task.CompletedTask;
             }
             else if (MultiThreaded)
             {
-                var task = new FirewallTask(action, state, typeof(T), CancelToken);
+                var task = new FirewallTask(action, state, typeof(T), name, CancelToken);
+                Logger.Debug("Queued firewall task {0}", name);
                 firewallTasks.Enqueue(task);
+                return Task.CompletedTask;
             }
             else
             {
-                action.Invoke(state, CancelToken).Sync();
+                return action.Invoke(state, CancelToken);
             }
         }
 
@@ -415,7 +410,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="cleanup">Whether to cleanup files first before starting the service</param>
         /// <returns>Service</returns>
         public static T CreateAndStartIPBanTestService<T>(string directory = null, string configFileName = null, string defaultBannedIPAddressHandlerUrl = null,
-            Func<string, string> configFileModifier = null, bool cleanup = true) where T : IPBanService
+            Func<string, string> configFileModifier = null, bool cleanup = true) where T : IPBanService, new()
         {
             // if not running tests, do nothing
             if (!UnitTestDetector.Running)
@@ -518,24 +513,38 @@ namespace DigitalRuby.IPBanCore
 
             if (service != null)
             {
-                if (File.Exists(Path.Combine(AppContext.BaseDirectory, "nlog.config")))
+                var nlogFile = Path.Combine(AppContext.BaseDirectory, "nlog.config");
+                if (File.Exists(nlogFile))
                 {
-                    File.Delete(Path.Combine(AppContext.BaseDirectory, "nlog.config"));
+                    File.Delete(nlogFile);
+                }
+                var appDataCache = Path.Combine(AppContext.BaseDirectory, "AppData", "Cache");
+                if (Directory.Exists(appDataCache))
+                {
+                    Directory.Delete(appDataCache, true);
                 }
                 service.Firewall.Truncate();
                 service.RunCycleAsync().Sync();
                 service.IPBanDelegate = null;
                 service.Dispose();
-                ExtensionMethods.RemoveDatabaseFiles();
+                IPBanService.CleanupIPBanTestFiles();
                 NLog.Time.TimeSource.Current = new NLog.Time.AccurateUtcTimeSource();
                 IPBanService.UtcNow = default;
             }
         }
 
         /// <inheritdoc />
-        public bool IsWhitelisted(string entry) => Config.IsWhitelisted(entry);
+        public bool IsWhitelisted(string entry, out string reason) => Config.IsWhitelisted(entry, out reason);
 
         /// <inheritdoc />
-        public bool IsWhitelisted(IPAddressRange range) => Config.IsWhitelisted(range);
+        public bool IsWhitelisted(IPAddressRange range, out string reason) => Config.IsWhitelisted(range, out reason);
+
+        /// <inheritdoc />
+        public virtual void AddLogScanner(LogScannerOptions options, ICollection<ILogScanner> logs)
+        {
+            // log files use a timer internally and do not need to be updated regularly
+            IPBanLogFileScanner scanner = new(options);
+            logs.Add(scanner);
+        }
     }
 }

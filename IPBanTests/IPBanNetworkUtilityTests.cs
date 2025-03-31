@@ -22,11 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-using System.Net;
+using DigitalRuby.IPBanCore;
 
 using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
-using DigitalRuby.IPBanCore;
+using System.Net;
 
 namespace DigitalRuby.IPBanTests
 {
@@ -46,8 +47,8 @@ namespace DigitalRuby.IPBanTests
         [TestCase("2601:642:c001:bdd0:a5d1:8867:a950:14a4", false)]
         public void TestIsInternal(string ip, bool isInternal)
         {
-            Assert.IsTrue(IPAddress.TryParse(ip, out var ipObj));
-            Assert.AreEqual(isInternal, ipObj.IsInternal());
+            ClassicAssert.IsTrue(IPAddress.TryParse(ip, out var ipObj));
+            ClassicAssert.AreEqual(isInternal, ipObj.IsInternal());
         }
     }
 }

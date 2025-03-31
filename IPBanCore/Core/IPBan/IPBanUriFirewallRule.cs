@@ -39,19 +39,20 @@ namespace DigitalRuby.IPBanCore
     /// </summary>
     public class IPBanUriFirewallRule : IUpdater
     {
-        private static readonly string[] commentDelimiters = new[]
-        {
+        private static readonly string[] commentDelimiters =
+        [
             "#",
             "'",
             "REM",
             ";",
             "//"
-        };
+        ];
 
         private static readonly TimeSpan fiveSeconds = TimeSpan.FromSeconds(5.0);
         private static readonly TimeSpan thirtySeconds = TimeSpan.FromSeconds(30.0);
 
         private readonly IIPBanFirewall firewall;
+        private readonly IFirewallTaskRunner firewallTaskRunner;
         private readonly IIsWhitelisted whitelistChecker;
         private readonly IHttpRequestMaker httpRequestMaker;
         private readonly HttpClient httpClient;
@@ -81,19 +82,25 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Constructor
         /// </summary>
-        /// <param name="firewall">The firewall to block with</param>
-        /// <param name="whitelistChecker">Whitelist checker</param>
-        /// <param name="httpRequestMaker">Http request maker for http uris, can leave null if uri is file</param>
+        /// <param name="firewall">Firewall</param>
+        /// <param name="firewallTaskRunner">The firewall task runner (must not be null)</param>
+        /// <param name="whitelistChecker">Whitelist checker (can be null)</param>
+        /// <param name="httpRequestMaker">Http request maker for http uris (must not be null)</param>
         /// <param name="rulePrefix">Firewall rule prefix</param>
         /// <param name="interval">Interval to check uri for changes</param>
         /// <param name="uri">Uri, can be either file or http(s).</param>
         /// <param name="maxCount">Max count of ips that can come from the rule or less than or equal to 0 for infinite.</param>
-        public IPBanUriFirewallRule(IIPBanFirewall firewall, IIsWhitelisted whitelistChecker, IHttpRequestMaker httpRequestMaker, string rulePrefix,
+        public IPBanUriFirewallRule(IIPBanFirewall firewall,
+            IFirewallTaskRunner firewallTaskRunner,
+            IIsWhitelisted whitelistChecker,
+            IHttpRequestMaker httpRequestMaker,
+            string rulePrefix,
             TimeSpan interval, Uri uri, int maxCount = 10000)
         {
             this.firewall = firewall.ThrowIfNull();
-            this.whitelistChecker = whitelistChecker.ThrowIfNull();
-            this.httpRequestMaker = httpRequestMaker;
+            this.firewallTaskRunner = firewallTaskRunner.ThrowIfNull();
+            this.whitelistChecker = whitelistChecker;
+            this.httpRequestMaker = httpRequestMaker.ThrowIfNull();
             RulePrefix = rulePrefix.ThrowIfNull();
             Uri = uri.ThrowIfNull();
             Interval = (interval.TotalSeconds < 5.0 ? fiveSeconds : interval);
@@ -101,12 +108,7 @@ namespace DigitalRuby.IPBanCore
 
             if (!uri.IsFile)
             {
-                // ensure uri ends with slash
-                if (!uri.ToString().EndsWith("/"))
-                {
-                    uri = new Uri(uri.ToString() + "/");
-                }
-                httpClient = new HttpClient { BaseAddress = uri, Timeout = thirtySeconds };
+                httpClient = new HttpClient { Timeout = thirtySeconds };
             }
         }
 
@@ -162,40 +164,31 @@ namespace DigitalRuby.IPBanCore
             if ((now - lastRun) >= Interval)
             {
                 lastRun = now;
-                try
+                if (Uri.IsFile)
                 {
-                    if (Uri.IsFile)
+                    string filePath = Uri.LocalPath;
+                    if (File.Exists(filePath))
                     {
-                        string filePath = Uri.LocalPath;
-                        if (File.Exists(filePath))
+                        string text;
+                        if (filePath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
                         {
-                            string text;
-                            if (filePath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
-                            {
-                                using var fs = File.OpenRead(filePath);
-                                var bytes = DecompressBytes(fs);
-                                text = Encoding.UTF8.GetString(bytes);
-                            }
-                            else
-                            {
-                                text = await File.ReadAllTextAsync(filePath, cancelToken);
-                            }
-                            await ProcessResult(text, cancelToken);
+                            using var fs = File.OpenRead(filePath);
+                            var bytes = DecompressBytes(fs);
+                            text = Encoding.UTF8.GetString(bytes);
                         }
-                    }
-                    else
-                    {
-                        byte[] bytes = await httpRequestMaker.MakeRequestAsync(Uri, cancelToken: cancelToken);
-                        string text = Encoding.UTF8.GetString(bytes);
-                        await ProcessResult(text, cancelToken);
+                        else
+                        {
+                            text = await File.ReadAllTextAsync(filePath, cancelToken);
+                        }
+                        ProcessResult(text, cancelToken);
                     }
                 }
-                catch (Exception ex)
+                else
                 {
-                    if (ex is not OperationCanceledException)
-                    {
-                        Logger.Error(ex);
-                    }
+                    string newUri = Uri.ToString().Replace("$ts$", IPBanService.UtcNow.Ticks.ToStringInvariant());
+                    byte[] bytes = await httpRequestMaker.MakeRequestAsync(new Uri(newUri), cancelToken: cancelToken);
+                    string text = Encoding.UTF8.GetString(bytes);
+                    ProcessResult(text, cancelToken);
                 }
             }
         }
@@ -205,17 +198,21 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public void DeleteRule()
         {
-            foreach (string ruleName in firewall.GetRuleNames(RulePrefix).ToArray())
+            firewallTaskRunner.RunFirewallTask((state, cancelToken) =>
             {
-                firewall.DeleteRule(ruleName);
-            }
+                foreach (string ruleName in firewall.GetRuleNames(RulePrefix).ToArray())
+                {
+                    firewall.DeleteRule(ruleName);
+                }
+                return Task.CompletedTask;
+            }, string.Empty, nameof(IPBanFirewallRule) + "." + nameof(DeleteRule));
         }
 
-        private Task ProcessResult(string text, CancellationToken cancelToken)
+        private void ProcessResult(string text, CancellationToken cancelToken)
         {
             using StringReader reader = new(text);
             string line;
-            List<IPAddressRange> ranges = new();
+            List<IPAddressRange> ranges = [];
             int lines = 0;
 
             while ((line = reader.ReadLine()) != null)
@@ -240,14 +237,21 @@ namespace DigitalRuby.IPBanCore
                 {
                     continue;
                 }
-                else if (whitelistChecker is null || !whitelistChecker.IsWhitelisted(range))
+                else if (whitelistChecker is null || !whitelistChecker.IsWhitelisted(range, out _))
                 {
                     // make sure to add only ranges that are not whitelisted
                     ranges.Add(range);
                 }
             }
 
-            return firewall.BlockIPAddresses(RulePrefix, ranges, null, cancelToken);
+            var sortedDistinct = ranges.OrderBy(r => r).Combine().ToArray();
+
+            Logger.Warn("Updating firewall uri rule {0} with {1} ips", RulePrefix, sortedDistinct.Length);
+
+            firewallTaskRunner.RunFirewallTask((state, cancelToken) =>
+            {
+                return firewall.BlockIPAddresses(RulePrefix, sortedDistinct, null, cancelToken);
+            }, string.Empty, nameof(IPBanUriFirewallRule) + "." + nameof(ProcessResult));
         }
 
         private static byte[] DecompressBytes(Stream input)

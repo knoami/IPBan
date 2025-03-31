@@ -23,6 +23,8 @@ SOFTWARE.
 */
 
 #pragma warning disable CA1416 // Validate platform compatibility
+#pragma warning disable SYSLIB1054 // Use 'LibraryImportAttribute' instead of 'DllImportAttribute' to generate P/Invoke marshalling code at compile time
+#pragma warning disable SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.
 
 using System;
 using System.Collections.Generic;
@@ -41,7 +43,7 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Operating system utility methods
     /// </summary>
-    public class OSUtility
+    public static class OSUtility
     {
         /// <summary>
         /// Unknown operating system
@@ -95,8 +97,90 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public static bool UsesYumPackageManager { get; private set; }
 
+        private static class WindowsAccountPInvoke
+        {
+            private const int MaxPreferredLength = -1;
+            private const int ErrSuccess = 0;
+            private const int ErrorMoreData = 234;
+            private const uint UfAccountDisable = 0x00000002;
+
+            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+            public struct USER_INFO_1
+            {
+                public string usri1_name;
+                public uint usri1_password;
+                public uint usri1_password_age;
+                public uint usri1_priv;
+                public string usri1_home_dir;
+                public string usri1_comment;
+                public uint usri1_flags;
+                public string usri1_script_path;
+            }
+
+            [DllImport("Netapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            public static extern int NetUserEnum(
+                string servername,
+                int level,
+                uint filter,
+                out IntPtr bufptr,
+                int prefmaxlen,
+                out int entriesread,
+                out int totalentries,
+                ref IntPtr resume_handle);
+
+            [DllImport("Netapi32.dll")]
+            public static extern int NetApiBufferFree(IntPtr Buffer);
+
+            public static IReadOnlyDictionary<string, bool> GetUserAccounts()
+            {
+                IntPtr buffer = IntPtr.Zero;
+                IntPtr resumeHandle = IntPtr.Zero;
+                Type userInfoStructType = typeof(USER_INFO_1);
+                int userInfoStructSize = Marshal.SizeOf(userInfoStructType);
+                int entriesRead = 0;
+                int result = 0;
+                Dictionary<string, bool> userList = new(StringComparer.OrdinalIgnoreCase);
+
+                do
+                {
+                    try
+                    {
+                        result = NetUserEnum(null, 1, 0, out buffer, MaxPreferredLength, out entriesRead, out _, ref resumeHandle);
+
+                        // protect in case entries read is garbled
+                        if (entriesRead > 0 && entriesRead <= ushort.MaxValue && buffer != IntPtr.Zero && (result == ErrSuccess || result == ErrorMoreData))
+                        {
+                            IntPtr iter = buffer;
+                            while (entriesRead-- > 0)
+                            {
+                                USER_INFO_1 userInfo = Marshal.PtrToStructure<USER_INFO_1>(iter);
+                                var active = (userInfo.usri1_flags & UfAccountDisable) == 0;
+                                userList[userInfo.usri1_name] = active;
+                                iter += userInfoStructSize;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error("Error getting user accounts", ex);
+                        break;
+                    }
+                    finally
+                    {
+                        if (buffer != IntPtr.Zero)
+                        {
+                            _ = NetApiBufferFree(buffer);
+                        }
+                    }
+                }
+                while (result == ErrorMoreData);
+
+                return userList;
+            }
+        }
+
         private static readonly string tempFolder;
-        private static readonly object locker = new();
+        private static readonly Lock locker = new();
 
         private static PerformanceCounter windowsCpuCounter;
         private static PerformanceCounter windowsDiskIopsCounter;
@@ -275,23 +359,10 @@ namespace DigitalRuby.IPBanCore
 
         private static void PopulateUsersWindows(Dictionary<string, bool> newUsers)
         {
-            // Windows: WMIC
-            // wmic useraccount get disabled,name
-            // FALSE username
-            // TRUE  disabledusername
-            string output = StartProcessAndWait("wmic", "useraccount get disabled,name");
-            string[] lines = output.Split('\n').Skip(1).ToArray();
-            foreach (string line in lines)
+            var dictionary = WindowsAccountPInvoke.GetUserAccounts();
+            foreach (var kv in dictionary)
             {
-                string trimmedLine = line.Trim();
-                int pos = trimmedLine.IndexOf(' ');
-                if (pos >= 0)
-                {
-                    string disabled = trimmedLine[..pos].Trim();
-                    string foundUserName = trimmedLine[pos..].Trim();
-                    _ = bool.TryParse(disabled, out bool disabledBool);
-                    newUsers[foundUserName] = !disabledBool;
-                }
+                newUsers[kv.Key] = kv.Value;
             }
         }
 
@@ -389,7 +460,7 @@ namespace DigitalRuby.IPBanCore
         }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-        private class MEMORYSTATUSEX
+        private struct MEMORYSTATUSEX
         {
             public uint dwLength;
             public uint dwMemoryLoad;
@@ -402,13 +473,13 @@ namespace DigitalRuby.IPBanCore
             public ulong ullAvailExtendedVirtual;
             public MEMORYSTATUSEX()
             {
-                this.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+                this.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
             }
         }
 
         [return: MarshalAs(UnmanagedType.Bool)]
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern bool GlobalMemoryStatusEx([In, Out] MEMORYSTATUSEX lpBuffer);
+        private static extern bool GlobalMemoryStatusEx([In, Out] ref MEMORYSTATUSEX lpBuffer);
 
         /// <summary>
         /// Get memory usage
@@ -421,7 +492,7 @@ namespace DigitalRuby.IPBanCore
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 MEMORYSTATUSEX mem = new();
-                if (GlobalMemoryStatusEx(mem))
+                if (GlobalMemoryStatusEx(ref mem))
                 {
                     totalMemory = (long)mem.ullTotalPhys;
                     availableMemory = (long)mem.ullAvailPhys;
@@ -972,33 +1043,94 @@ namespace DigitalRuby.IPBanCore
                     version.Version.Minor > 1 && version.Version.Minor < 4);
             }
         }
+
+        /// <summary>
+        /// Is OS windows 8 or server 2012 or newer?
+        /// </summary>
+        public static bool IsWindows8OrServer2012OrNewer
+        {
+            get
+            {
+                var version = System.Environment.OSVersion;
+                return (version.Platform == PlatformID.Win32NT &&
+                    version.Version.Major >= 6 &&
+                    version.Version.Minor > 1 &&
+                    version.Version.Build > 1);
+            }
+        }
+
+        /// <summary>
+        /// Is OS windows 10 or server 2016 or newer?
+        /// </summary>
+        public static bool IsWindows10OrServer2016OrNewer
+        {
+            get
+            {
+                var version = System.Environment.OSVersion;
+                return (version.Platform == PlatformID.Win32NT &&
+                    version.Version.Major >= 10 &&
+                    version.Version.Minor >= 0 &&
+                    version.Version.Build >= 0);
+            }
+        }
+
+        /// <summary>
+        /// Is OS windows 11 or server 2022 or newer?
+        /// </summary>
+        public static bool IsWindows11OrServer2022OrNewer
+        {
+            get
+            {
+                var version = System.Environment.OSVersion;
+                return (version.Platform == PlatformID.Win32NT &&
+                    version.Version.Major >= 10 &&
+                    version.Version.Minor >= 0 &&
+                    version.Version.Build >= 22000);
+            }
+        }
     }
 
     /// <summary>
     /// Mark a class as requiring a specific operating system
     /// </summary>
+    /// <remarks>
+    /// Constructor
+    /// </remarks>
+    /// <param name="os">OS (IPBanOS.*) or null/empty if none</param>
     [AttributeUsage(AttributeTargets.Class)]
-    public class RequiredOperatingSystemAttribute : Attribute
+    public class RequiredOperatingSystemAttribute(string os) : Attribute
     {
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="os">OS (IPBanOS.*) or null/empty if none</param>
-        public RequiredOperatingSystemAttribute(string os)
-        {
-            RequiredOS = os?.Trim();
-        }
 
         /// <summary>
         /// The required operating system (IPBanOS.*)
         /// </summary>
-        public string RequiredOS { get; }
+        public string RequiredOS { get; } = os?.Trim();
 
+        private int priority;
         /// <summary>
         /// Priority - higher priority are preferred when registering firewalls.
         /// Set to less than 0 to not include in regular firewall injection.
         /// </summary>
-        public int Priority { get; set; } = 1;
+        public int Priority
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(PriorityEnvironmentVariable))
+                {
+                    return priority;
+                }
+                string value = Environment.GetEnvironmentVariable(PriorityEnvironmentVariable);
+                if (string.IsNullOrWhiteSpace(value) || !int.TryParse(value, out var priorityOverride))
+                {
+                    return priority;
+                }
+                return priorityOverride;
+            }
+            set
+            {
+                priority = value;
+            }
+        }
 
         /// <summary>
         /// Major version minimum. Set to 0 or less to ignore.
@@ -1019,6 +1151,11 @@ namespace DigitalRuby.IPBanCore
         /// Require an environment variable to exist (key=value syntax)
         /// </summary>
         public string RequireEnvironmentVariable { get; set; }
+
+        /// <summary>
+        /// Priority environment variable to override priority (key=value syntax)
+        /// </summary>
+        public string PriorityEnvironmentVariable { get; set; }
 
         /// <summary>
         /// Whether the current OS is a match for this attribute
@@ -1065,3 +1202,5 @@ namespace DigitalRuby.IPBanCore
 }
 
 #pragma warning restore CA1416 // Validate platform compatibility
+#pragma warning restore SYSLIB1054 // Use 'LibraryImportAttribute' instead of 'DllImportAttribute' to generate P/Invoke marshalling code at compile time
+#pragma warning restore SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.

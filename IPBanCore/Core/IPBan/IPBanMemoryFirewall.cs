@@ -24,7 +24,6 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -34,8 +33,6 @@ namespace DigitalRuby.IPBanCore
 {
     /// <summary>
     /// In memory firewall that persists rules to disk. This is not meant to be used directly but rather to be used inside of other firewall implementations.
-    /// Use the IsIPAddressBlocked method in your firewall implementation / packet injection / etc.
-    /// Also great for unit testing.
     /// This class is thread safe.
     /// </summary>
     [RequiredOperatingSystemAttribute(null, Priority = -99)] // low priority, basically any other firewall is preferred unless this one is explicitly specified in the config
@@ -50,17 +47,17 @@ namespace DigitalRuby.IPBanCore
             /// <summary>
             /// IPV4 ranges
             /// </summary>
-            IEnumerable<string> IPV4 { get; }
+            IEnumerable<string> IPV4Strings { get; }
 
             /// <summary>
             /// IPV6 ranges
             /// </summary>
-            IEnumerable<string> IPV6 { get; }
+            IEnumerable<string> IPV6Strings { get; }
 
             /// <summary>
             /// Port ranges, empty for none
             /// </summary>
-            IEnumerable<string> PortRanges { get; }
+            IEnumerable<string> PortRangeStrings { get; }
 
             /// <summary>
             /// True to block, false to allow
@@ -103,21 +100,20 @@ namespace DigitalRuby.IPBanCore
 
         private class MemoryFirewallRuleRanges : IComparer<IPV4Range>, IComparer<IPV6Range>, IMemoryFirewallRuleRanges
         {
-            private static readonly List<PortRange> emptyPortRanges = new(0);
+            private readonly List<IPV4Range> ipv4 = [];
+            private readonly List<IPV6Range> ipv6 = [];
+            private readonly PortRange[] portRanges = [];
 
-            private readonly List<IPV4Range> ipv4 = new();
-            private readonly List<IPV6Range> ipv6 = new();
-            private readonly PortRange[] portRanges;
-
-            public IEnumerable<string> IPV4 => ipv4.Select(r => r.ToIPAddressRange().ToString());
-            public IEnumerable<string> IPV6 => ipv6.Select(r => r.ToIPAddressRange().ToString());
-            public IEnumerable<string> PortRanges => portRanges.Select(r => r.ToString());
+            public IEnumerable<string> IPV4Strings => ipv4.Select(r => r.ToIPAddressRange().ToString());
+            public IEnumerable<string> IPV6Strings => ipv6.Select(r => r.ToIPAddressRange().ToString());
+            public IEnumerable<string> PortRangeStrings => portRanges.Select(r => r.ToString());
+            public string Ports => string.Join(',', PortRangeStrings);
 
             public bool Block { get; }
 
             public string Name { get; }
 
-            public MemoryFirewallRuleRanges(IEnumerable<IPAddressRange> ipRanges, List<PortRange> allowedPorts, bool block, string name)
+            public MemoryFirewallRuleRanges(IEnumerable<IPAddressRange> ipRanges, List<PortRange> allowPorts, bool block, string name)
             {
                 List<IPAddressRange> ipRangesSorted = new(ipRanges);
                 ipRangesSorted.Sort();
@@ -137,7 +133,20 @@ namespace DigitalRuby.IPBanCore
                 }
                 ipv4.TrimExcess();
                 ipv6.TrimExcess();
-                portRanges = IPBanFirewallUtility.GetPortRangesForRule(allowedPorts, block).ToArray();
+
+                if (allowPorts is not null && allowPorts.Count != 0)
+                {
+                    if (block)
+                    {
+                        // invert allow ports to block ports
+                        var invertedPorts = IPBanFirewallUtility.InvertPortRanges(allowPorts);
+                        portRanges = [.. invertedPorts];
+                    }
+                    else
+                    {
+                        portRanges = [.. allowPorts];
+                    }
+                }
             }
 
             public bool Contains(System.Net.IPAddress ipAddressObj, int port)
@@ -151,13 +160,13 @@ namespace DigitalRuby.IPBanCore
 
             public bool Contains(uint ipAddress, int port)
             {
-                bool foundPort = port < 0 || portRanges.Length == 0 || portRanges.Any(p => p.Contains(port));
+                bool foundPort = port < 1 || portRanges.Length == 0 || portRanges.Any(p => p.Contains(port));
                 return (foundPort && ipv4.BinarySearch(new IPV4Range(ipAddress, ipAddress), this) >= 0);
             }
 
             public bool Contains(UInt128 ipAddress, int port)
             {
-                bool foundPort = port < 0 || portRanges.Length == 0 || portRanges.Any(p => p.Contains(port));
+                bool foundPort = port < 1 || portRanges.Length == 0 || portRanges.Any(p => p.Contains(port));
                 return (foundPort && ipv6.BinarySearch(new IPV6Range(ipAddress, ipAddress), this) >= 0);
             }
 
@@ -190,30 +199,32 @@ namespace DigitalRuby.IPBanCore
             public int GetCount() => ipv4.Count + ipv6.Count;
         }
 
-        private class MemoryFirewallRule : IMemoryFirewallRule
+        private class MemoryFirewallRule(bool block, string name) : IMemoryFirewallRule
         {
-            private readonly HashSet<uint> ipv4 = new();
-            private readonly HashSet<UInt128> ipv6 = new();
-            private readonly List<PortRange> allowPorts = new();
+            private readonly HashSet<uint> ipv4 = [];
+            private readonly HashSet<UInt128> ipv6 = [];
+            private readonly List<PortRange> ports = [];
 
             public IEnumerable<string> IPV4 => ipv4.Select(i => i.ToIPAddress().ToString());
             public IEnumerable<string> IPV6 => ipv6.Select(i => i.ToIPAddress().ToString());
+            public string Ports => string.Join(",", ports.Select(p => p.ToString()));
 
-            public bool Block { get; }
+            public bool Block { get; } = block;
 
-            public string Name { get; }
-
-            public MemoryFirewallRule(bool block, string name)
-            {
-                Block = block;
-                Name = name;
-            }
+            public string Name { get; } = name;
 
             public void SetIPAddresses(IEnumerable<string> ipAddresses, IEnumerable<PortRange> allowPorts)
             {
                 ipv4.Clear();
                 ipv6.Clear();
-                this.allowPorts.Clear();
+                this.ports.Clear();
+
+                if (Block)
+                {
+                    // invert allow ports to block ports
+                    allowPorts = IPBanFirewallUtility.InvertPortRanges(allowPorts);
+                }
+
                 foreach (string ipAddress in ipAddresses)
                 {
                     if (IPAddress.TryParse(ipAddress, out IPAddress ipAddressObj))
@@ -230,12 +241,18 @@ namespace DigitalRuby.IPBanCore
                 }
                 foreach (var port in IPBanFirewallUtility.GetPortRangesForRule(allowPorts, Block))
                 {
-                    this.allowPorts.Add(port);
+                    this.ports.Add(port);
                 }
             }
 
             public void AddIPAddressesDelta(IEnumerable<IPBanFirewallIPAddressDelta> deltas, IEnumerable<PortRange> allowPorts = null)
             {
+                if (Block)
+                {
+                    // invert allow ports to block ports
+                    allowPorts = IPBanFirewallUtility.InvertPortRanges(allowPorts);
+                }
+
                 foreach (IPBanFirewallIPAddressDelta delta in deltas)
                 {
                     if (IPAddress.TryParse(delta.IPAddress, out IPAddress ipAddressObj))
@@ -261,10 +278,10 @@ namespace DigitalRuby.IPBanCore
                         }
                     }
                 }
-                this.allowPorts.Clear();
+                this.ports.Clear();
                 if (allowPorts is not null)
                 {
-                    this.allowPorts.AddRange(allowPorts);
+                    this.ports.AddRange(allowPorts);
                 }
             }
 
@@ -302,9 +319,9 @@ namespace DigitalRuby.IPBanCore
                 return ipv6.Remove(ipv6UInt128);
             }
 
-            public bool Contains(System.Net.IPAddress ipAddressObj, int port)
+            public bool ContainsIP(System.Net.IPAddress ipAddressObj, int port)
             {
-                if (IsPortAllowed(port))
+                if (!ContainsPort(port))
                 {
                     return false;
                 }
@@ -315,37 +332,37 @@ namespace DigitalRuby.IPBanCore
                 return ipv6.Contains(ipAddressObj.ToUInt128());
             }
 
-            public bool Contains(string ipAddress, int port)
+            public bool ContainsIP(string ipAddress, int port)
             {
                 if (IPAddress.TryParse(ipAddress, out IPAddress ipAddressObj))
                 {
-                    return Contains(ipAddressObj, port);
+                    return ContainsIP(ipAddressObj, port);
                 }
                 return false;
             }
 
-            public bool Contains(uint ipv4UInt, int port)
+            public bool ContainsIP4(uint ipv4UInt, int port)
             {
-                return !IsPortAllowed(port) && ipv4.Contains(ipv4UInt);
+                return ContainsPort(port) && ipv4.Contains(ipv4UInt);
             }
 
-            public bool Contains(UInt128 ipv6UInt128, int port)
+            public bool ContainsIP6(UInt128 ipv6UInt128, int port)
             {
-                return !IsPortAllowed(port) && ipv6.Contains(ipv6UInt128);
+                return ContainsPort(port) && ipv6.Contains(ipv6UInt128);
             }
 
-            public bool IsPortAllowed(int port)
+            public bool ContainsPort(int port)
             {
-                return (port >= 0 && allowPorts.Any(p => p.Contains(port)));
+                return (port < 1 || ports.Count == 0 || ports.Any(p => p.Contains(port)));
             }
 
             public int GetCount() => ipv4.Count + ipv6.Count;
         }
 
-        private readonly Dictionary<string, MemoryFirewallRuleRanges> blockRulesRanges = new();
-        private readonly Dictionary<string, MemoryFirewallRule> blockRules = new();
+        private readonly Dictionary<string, MemoryFirewallRule> blockRules = [];
+        private readonly Dictionary<string, MemoryFirewallRuleRanges> blockRulesRanges = [];
         private readonly MemoryFirewallRule allowRule;
-        private readonly Dictionary<string, MemoryFirewallRuleRanges> allowRuleRanges = new();
+        private readonly Dictionary<string, MemoryFirewallRuleRanges> allowRuleRanges = [];
 
         /// <summary>
         /// Get all the rules with ranges
@@ -373,10 +390,10 @@ namespace DigitalRuby.IPBanCore
             {
                 lock (this)
                 {
-                    IEnumerable<KeyValuePair<string, IMemoryFirewallRule>> allowRules = new KeyValuePair<string, IMemoryFirewallRule>[]
-                    {
-                        new KeyValuePair<string, IMemoryFirewallRule>(allowRule.Name, allowRule)
-                    };
+                    IEnumerable<KeyValuePair<string, IMemoryFirewallRule>> allowRules =
+                    [
+                        new(allowRule.Name, allowRule)
+                    ];
                     return blockRules
                         .Select(kv => new KeyValuePair<string, IMemoryFirewallRule>(kv.Key, kv.Value))
                         .Union(allowRules)
@@ -387,8 +404,16 @@ namespace DigitalRuby.IPBanCore
 
         private string ScrubRuleNamePrefix(string prefix, string ruleNamePrefix)
         {
+            ruleNamePrefix ??= string.Empty;
+
+            // remove prefix if it exists
+            if (ruleNamePrefix.StartsWith(prefix))
+            {
+                ruleNamePrefix = ruleNamePrefix[prefix.Length..];
+            }
+
             // in memory firewall does not have a count limit per rule, so remove the trailing underscore if any
-            return (prefix + (ruleNamePrefix ?? string.Empty)).Trim('_');
+            return (prefix + ruleNamePrefix).Trim('_');
         }
 
         /// <inheritdoc />
@@ -412,6 +437,9 @@ namespace DigitalRuby.IPBanCore
         {
             return Task.CompletedTask;
         }
+
+        /// <inheritdoc />
+        public override IPBanMemoryFirewall Compile() => this;
 
         /// <inheritdoc />
         public override Task<bool> AllowIPAddresses(IEnumerable<string> ipAddresses, CancellationToken cancelToken = default)
@@ -487,13 +515,12 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateAllowedIPAddresses()
+        public override IEnumerable<string> EnumerateAllowedIPAddresses(string ruleNamePrefix = null)
         {
             lock (this)
             {
-                List<string> ips = new();
-                ips.AddRange(allowRule.EnumerateIPAddresses());
-                foreach (var rule in allowRuleRanges)
+                List<string> ips = [.. allowRule.EnumerateIPAddresses()];
+                foreach (var rule in allowRuleRanges.Where(r => ruleNamePrefix is null || r.Key.StartsWith(ruleNamePrefix, StringComparison.OrdinalIgnoreCase)))
                 {
                     foreach (IPAddressRange range in rule.Value.EnumerateIPAddressesRanges())
                     {
@@ -512,16 +539,17 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateBannedIPAddresses()
+        public override IEnumerable<string> EnumerateBannedIPAddresses(string ruleNamePrefix = null)
         {
-            List<string> ips = new();
+            List<string> ips = [];
             lock (this)
             {
-                foreach (MemoryFirewallRule rule in blockRules.Values)
+                foreach (MemoryFirewallRule rule in blockRules.Values.Where(r => ruleNamePrefix is null || r.Name.StartsWith(ruleNamePrefix, StringComparison.OrdinalIgnoreCase)))
                 {
                     foreach (string ipAddress in rule.EnumerateIPAddresses())
                     {
-                        if (!IsIPAddressAllowed(ipAddress))
+                        if (IPAddress.TryParse(ipAddress, out var ipAddressObj) &&
+                            !IsIPAddressAllowedInternal(ipAddressObj, out _))
                         {
                             ips.Add(ipAddress);
                         }
@@ -533,7 +561,7 @@ namespace DigitalRuby.IPBanCore
                     {
                         if (range.Single)
                         {
-                            if (!IsIPAddressAllowed(range.Begin, out _))
+                            if (!IsIPAddressAllowedInternal(range.Begin, out _))
                             {
                                 ips.Add(range.Begin.ToString());
                             }
@@ -553,7 +581,7 @@ namespace DigitalRuby.IPBanCore
         {
             lock (this)
             {
-                List<IPAddressRange> results = new();
+                List<IPAddressRange> results = [];
                 string prefix = ScrubRuleNamePrefix(BlockRulePrefix, ruleNamePrefix);
                 foreach (var rule in blockRules)
                 {
@@ -591,6 +619,28 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
+        public override string GetPorts(string ruleName)
+        {
+            if (blockRules.TryGetValue(ruleName, out var rule))
+            {
+                return rule.Ports;
+            }
+            else if (blockRulesRanges.TryGetValue(ruleName, out var ruleRanges))
+            {
+                return ruleRanges.Ports;
+            }
+            else if (!allowRuleRanges.TryGetValue(ruleName, out ruleRanges))
+            {
+                return ruleRanges.Ports;
+            }
+            else if (allowRule.Name.Equals(ruleName, StringComparison.OrdinalIgnoreCase))
+            {
+                return allowRule.Ports;
+            }
+            return null;
+        }
+
+        /// <inheritdoc />
         public override IEnumerable<string> GetRuleNames(string ruleNamePrefix = null)
         {
             lock (this)
@@ -607,7 +657,7 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override bool IsIPAddressAllowed(string ipAddress, int port = -1)
+        public bool IsIPAddressAllowed(string ipAddress, int port = 0)
         {
             if (!IPAddress.TryParse(ipAddress, out IPAddress ipAddressObj))
             {
@@ -623,11 +673,126 @@ namespace DigitalRuby.IPBanCore
         /// <param name="ruleName">Receives rule name if found</param>
         /// <param name="port">Port</param>
         /// <returns>True if ip is allowed</returns>
-        public bool IsIPAddressAllowed(System.Net.IPAddress ipAddressObj, out string ruleName, int port = -1)
+        public bool IsIPAddressAllowed(System.Net.IPAddress ipAddressObj, out string ruleName, int port = 0)
         {
             lock (this)
             {
-                if (allowRule.Contains(ipAddressObj, port))
+                if (allowRule.ContainsIP(ipAddressObj, port))
+                {
+                    ruleName = allowRule.Name;
+                    return true;
+                }
+
+                foreach (MemoryFirewallRuleRanges ranges in allowRuleRanges.Values)
+                {
+                    if (ranges.Contains(ipAddressObj, port))
+                    {
+                        ruleName = ranges.Name;
+                        return true;
+                    }
+                }
+            }
+            ruleName = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Check if ip is blocked
+        /// </summary>
+        /// <param name="ipAddress">IP address</param>
+        /// <param name="port">Port</param>
+        /// <returns>True if ip is blocked</returns>
+        public bool IsIPAddressBlocked(string ipAddress, int port = 0)
+        {
+            return IsIPAddressBlocked(ipAddress, out _, port);
+        }
+
+        /// <summary>
+        /// Check if ip is blocked
+        /// </summary>
+        /// <param name="ipAddressObj">IP address</param>
+        /// <param name="ruleName">Receive rule name if found</param>
+        /// <param name="allowed">True if ip is in allow rule</param>
+        /// <param name="port">Port</param>
+        /// <returns>True if ip is blocked</returns>
+        public bool IsIPAddressBlocked(System.Net.IPAddress ipAddressObj, out string ruleName, out bool allowed, int port = -1)
+        {
+            allowed = false;
+            lock (this)
+            {
+                if (IsIPAddressAllowed(ipAddressObj, out ruleName, port))
+                {
+                    allowed = true;
+                    return false;
+                }
+                else if (ipAddressObj.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                {
+                    uint ipv4 = ipAddressObj.ToUInt32();
+                    foreach (KeyValuePair<string, MemoryFirewallRule> rule in blockRules)
+                    {
+                        if (rule.Value.ContainsIP4(ipv4, port))
+                        {
+                            ruleName = rule.Key;
+                            return true;
+                        }
+                    }
+                    foreach (KeyValuePair<string, MemoryFirewallRuleRanges> rule in blockRulesRanges)
+                    {
+                        if (rule.Value.Contains(ipv4, port))
+                        {
+                            ruleName = rule.Key;
+                            return true;
+                        }
+                    }
+                }
+                else
+                {
+                    UInt128 ipv6 = ipAddressObj.ToUInt128();
+                    foreach (KeyValuePair<string, MemoryFirewallRule> rule in blockRules)
+                    {
+                        if (rule.Value.ContainsIP6(ipv6, port))
+                        {
+                            ruleName = rule.Key;
+                            return true;
+                        }
+                    }
+                    foreach (KeyValuePair<string, MemoryFirewallRuleRanges> rule in blockRulesRanges)
+                    {
+                        if (rule.Value.Contains(ipv6, port))
+                        {
+                            ruleName = rule.Key;
+                            return true;
+                        }
+                    }
+                }
+            }
+            ruleName = null;
+            return false;
+        }
+
+        /// <inheritdoc />
+        public bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = 0)
+        {
+            if (!IPAddressRange.TryParse(ipAddress, out var range))
+            {
+                ruleName = null;
+                return false;
+            }
+            return IsIPAddressBlocked(range.Begin, out ruleName, out _, port);
+        }
+
+        /// <summary>
+        /// Check if ip is allowed
+        /// </summary>
+        /// <param name="ipAddressObj">IP address</param>
+        /// <param name="ruleName">Receives rule name if found</param>
+        /// <param name="port">Port</param>
+        /// <returns>True if ip is allowed</returns>
+        private bool IsIPAddressAllowedInternal(System.Net.IPAddress ipAddressObj, out string ruleName, int port = 0)
+        {
+            lock (this)
+            {
+                if (allowRule.ContainsIP(ipAddressObj, port))
                 {
                     ruleName = allowRule.Name;
                     return true;
@@ -678,28 +843,17 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Check if ip is blocked
         /// </summary>
-        /// <param name="ipAddress">IP address</param>
-        /// <param name="port">Port</param>
-        /// <returns>True if ip is blocked</returns>
-        public bool IsIPAddressBlocked(string ipAddress, int port = -1)
-        {
-            return IsIPAddressBlocked(ipAddress, out _, port);
-        }
-
-        /// <summary>
-        /// Check if ip is blocked
-        /// </summary>
         /// <param name="ipAddressObj">IP address</param>
         /// <param name="ruleName">Receive rule name if found</param>
         /// <param name="allowed">True if ip is in allow rule</param>
         /// <param name="port">Port</param>
         /// <returns>True if ip is blocked</returns>
-        public bool IsIPAddressBlocked(System.Net.IPAddress ipAddressObj, out string ruleName, out bool allowed, int port = -1)
+        private bool IsIPAddressBlockedInternal(System.Net.IPAddress ipAddressObj, out string ruleName, out bool allowed, int port = 0)
         {
             allowed = false;
             lock (this)
             {
-                if (IsIPAddressAllowed(ipAddressObj, out ruleName, port))
+                if (IsIPAddressAllowedInternal(ipAddressObj, out ruleName, port))
                 {
                     allowed = true;
                     return false;
@@ -709,7 +863,7 @@ namespace DigitalRuby.IPBanCore
                     uint ipv4 = ipAddressObj.ToUInt32();
                     foreach (KeyValuePair<string, MemoryFirewallRule> rule in blockRules)
                     {
-                        if (rule.Value.Contains(ipv4, port))
+                        if (rule.Value.ContainsIP4(ipv4, port))
                         {
                             ruleName = rule.Key;
                             return true;
@@ -729,7 +883,7 @@ namespace DigitalRuby.IPBanCore
                     UInt128 ipv6 = ipAddressObj.ToUInt128();
                     foreach (KeyValuePair<string, MemoryFirewallRule> rule in blockRules)
                     {
-                        if (rule.Value.Contains(ipv6, port))
+                        if (rule.Value.ContainsIP6(ipv6, port))
                         {
                             ruleName = rule.Key;
                             return true;
@@ -750,24 +904,13 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = -1)
-        {
-            if (!System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipAddressObj))
-            {
-                ruleName = null;
-                return false;
-            }
-            return IsIPAddressBlocked(ipAddressObj, out ruleName, out _, port);
-        }
-
-        /// <inheritdoc />
         public override void Truncate()
         {
             lock (this)
             {
                 blockRules.Clear();
                 blockRulesRanges.Clear();
-                allowRule.SetIPAddresses(Array.Empty<string>(), null);
+                allowRule.SetIPAddresses([], null);
             }
         }
     }

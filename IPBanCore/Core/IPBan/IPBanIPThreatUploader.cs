@@ -1,42 +1,33 @@
 ﻿using System;
-using System.Net.Http;
-using System.Threading.Tasks;
-using System.Threading;
 using System.Collections.Generic;
-using System.Linq;
 using System.Globalization;
-using System.Reflection;
-using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace DigitalRuby.IPBanCore;
 
 /// <summary>
 /// Sync failed logins to ipthreat api
 /// </summary>
-public sealed class IPBanIPThreatUploader : IUpdater, IIPAddressEventHandler
+/// <remarks>
+/// Constructor
+/// </remarks>
+/// <param name="service">Service</param>
+public sealed class IPBanIPThreatUploader(IPBanService service) : IUpdater, IIPAddressEventHandler
 {
     private static readonly Uri ipThreatReportApiUri = new("https://api.ipthreat.net/api/bulkreport");
-    
-    private readonly IPBanService service;
+
+    private readonly IPBanService service = service;
     private readonly Random random = new();
-    private readonly List<IPAddressLogEvent> events = new();
+    private readonly List<IPAddressLogEvent> events = [];
 
     private DateTime nextRun = IPBanService.UtcNow;
 
-    /// <summary>
-    /// Constructor
-    /// </summary>
-    /// <param name="service">Service</param>
-    public IPBanIPThreatUploader(IPBanService service)
-    {
-        this.service = service;
-        nextRun = IPBanService.UtcNow;
-    }
-    
     /// <inheritdoc />
     public void Dispose()
     {
-        
+
     }
 
     /// <inheritdoc />
@@ -50,13 +41,13 @@ public sealed class IPBanIPThreatUploader : IUpdater, IIPAddressEventHandler
         }
 
         // copy events
-        IReadOnlyCollection<IPAddressLogEvent> eventsCopy;
+        IPAddressLogEvent[] eventsCopy;
         lock (events)
         {
-            eventsCopy = events.ToArray();
+            eventsCopy = [.. events];
             events.Clear();
         }
-        if (eventsCopy.Count == 0)
+        if (eventsCopy.Length == 0)
         {
             return;
         }
@@ -96,10 +87,10 @@ public sealed class IPBanIPThreatUploader : IUpdater, IIPAddressEventHandler
             var postJson = System.Text.Encoding.UTF8.GetBytes(Newtonsoft.Json.JsonConvert.SerializeObject(jsonObj));
             await service.RequestMaker.MakeRequestAsync(ipThreatReportApiUri,
                 postJson,
-                new KeyValuePair<string, object>[] { new KeyValuePair<string, object>("X-API-KEY", apiKey) },
+                [new("X-API-KEY", apiKey)],
                 null,
                 cancelToken);
-            Logger.Warn("Submitted {0} failed logins to ipthreat api", eventsCopy.Count);
+            Logger.Warn("Submitted {0} failed logins to ipthreat api", eventsCopy.Length);
         }
         catch (Exception ex)
         {
@@ -118,7 +109,7 @@ public sealed class IPBanIPThreatUploader : IUpdater, IIPAddressEventHandler
             this.events.AddRange(events.Where(e => e.Type == IPAddressEventType.Blocked &&
                 e.Count > 0 &&
                 !e.External &&
-                !service.Config.IsWhitelisted(e.IPAddress)));
+                !service.Config.IsWhitelisted(e.IPAddress, out _)));
         }
     }
 }

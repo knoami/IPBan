@@ -25,7 +25,6 @@ SOFTWARE.
 #region Imports
 
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -69,7 +68,7 @@ namespace DigitalRuby.IPBanCore
             IgnoreReadOnlyFields = true,
             IgnoreReadOnlyProperties = true
         };
-        
+
         static ExtensionMethods()
         {
             emptyXmlNs.Add("", "");
@@ -164,6 +163,17 @@ namespace DigitalRuby.IPBanCore
                 serializer.Serialize(writer, obj, emptyXmlNs);
             }
             return xml.ToString();
+        }
+
+        /// <summary>
+        /// Convert DateTime to Iso8601 string with Z suffix
+        /// </summary>
+        /// <param name="dt">DateTime</param>
+        /// <returns>Iso 8601 string</returns>
+        public static string ToStringIso8601(this DateTime dt)
+        {
+            return dt.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture)
+                .Replace(IPBanFilter.ItemDelimiterString, string.Empty);
         }
 
         /// <summary>
@@ -268,8 +278,7 @@ namespace DigitalRuby.IPBanCore
         public static string ToSHA256String(this string s)
         {
             s ??= string.Empty;
-            using var hasher = SHA256.Create();
-            return BitConverter.ToString(hasher.ComputeHash(Encoding.UTF8.GetBytes(s))).Replace("-", string.Empty);
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
         }
 
         /// <summary>
@@ -279,7 +288,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Hex string</returns>
         public static string ToHexString(this byte[] bytes)
         {
-            return BitConverter.ToString(bytes).Replace("-", string.Empty);
+            return Convert.ToHexString(bytes);
         }
 
         /// <summary>
@@ -429,7 +438,7 @@ namespace DigitalRuby.IPBanCore
         /// Get a UInt32 from an ipv4 address. By default, the UInt32 will be in the byte order of the CPU.
         /// </summary>
         /// <param name="ip">IPV4 address</param>
-        /// <param name="swap">Whether to make the uint in the byte order of the cpu (true) or network host order (false)</param>
+        /// <param name="swap">Whether to make the uint in the byte order of the cpu (true and default) or network host order (false)</param>
         /// <returns>UInt32</returns>
         /// <exception cref="InvalidOperationException">Not an ipv4 address</exception>
         public static uint ToUInt32(this IPAddress ip, bool swap = true)
@@ -453,10 +462,10 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Get a UInt128 from an ipv6 address. The UInt128 will be in the byte order of the CPU.
+        /// Get a UInt128 from an ipv6 address. By default, the UInt128 will be in the byte order of the CPU.
         /// </summary>
         /// <param name="ip">IPV6 address</param>
-        /// <param name="swap">Whether to make the byte order of the cpu (true) or network host order (false)</param>
+        /// <param name="swap">Whether to make the byte order of the cpu (true and default) or network host order (false)</param>
         /// <returns>UInt128</returns>
         /// <exception cref="InvalidOperationException">Not an ipv6 address</exception>
         public static unsafe UInt128 ToUInt128(this IPAddress ip, bool swap = true)
@@ -684,11 +693,11 @@ namespace DigitalRuby.IPBanCore
             {
                 bytes1 = bytes1.Reverse().ToArray();
                 bytes2 = bytes2.Reverse().ToArray();
-                finalBytes = bytes1.Concat(bytes2).ToArray();
+                finalBytes = [.. bytes1, .. bytes2];
             }
             else
             {
-                finalBytes = bytes2.Concat(bytes1).ToArray();
+                finalBytes = [.. bytes2, .. bytes1];
             }
             return new IPAddress(finalBytes);
         }
@@ -701,12 +710,8 @@ namespace DigitalRuby.IPBanCore
         public static unsafe IPAddress ToIPAddressRaw(this UInt128 value)
         {
             byte* bytes = (byte*)&value;
-            using var managedBytes = BytePool.Rent(16);
-            for (int i = 0; i < 16; i++)
-            {
-                managedBytes[i] = bytes[i];
-            }
-            return new IPAddress(managedBytes.AsSpan());
+            ReadOnlySpan<byte> spanBytes = new(bytes, 16);
+            return new IPAddress(spanBytes);
         }
 
         /// <summary>
@@ -734,7 +739,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>String or null if not found</returns>
         public static string GetString(this System.Text.Json.JsonElement elem, string name, string defaultValue = null)
         {
-            if (elem.TryGetProperty(name, out var elem2))
+            if (elem.ValueKind == JsonValueKind.Object && elem.TryGetProperty(name, out var elem2))
             {
                 return elem2.ToString();
             }
@@ -747,11 +752,36 @@ namespace DigitalRuby.IPBanCore
         /// <param name="elem">Element</param>
         /// <param name="name">Property name</param>
         /// <param name="defaultValue">Default value if not found</param>
-        /// <returns></returns>
+        /// <returns>Int32</returns>
         public static int GetInt32(this System.Text.Json.JsonElement elem, string name, int defaultValue = 0)
         {
-            if (!elem.TryGetProperty(name, out var elem2) ||
-                !int.TryParse(elem2.ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+            int value = defaultValue;
+            if (elem.ValueKind != JsonValueKind.Object || !elem.TryGetProperty(name, out var elem2))
+            {
+                return value;
+            }
+            else if (!int.TryParse(elem2.ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out value))
+            {
+                value = defaultValue;
+            }
+            return value;
+        }
+
+        /// <summary>
+        /// Attempt to get int64
+        /// </summary>
+        /// <param name="elem">Element</param>
+        /// <param name="name">Property name</param>
+        /// <param name="defaultValue">Default value if not found</param>
+        /// <returns>Int64</returns>
+        public static long GetInt64(this System.Text.Json.JsonElement elem, string name, long defaultValue = 0)
+        {
+            long value = defaultValue;
+            if (elem.ValueKind != JsonValueKind.Object || !elem.TryGetProperty(name, out var elem2))
+            {
+                return value;
+            }
+            else if (!long.TryParse(elem2.ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out value))
             {
                 value = defaultValue;
             }
@@ -790,6 +820,58 @@ namespace DigitalRuby.IPBanCore
                 value = defaultValue;
             }
             return value;
+        }
+
+        /// <summary>
+        /// Parse text into Timespan
+        /// </summary>
+        /// <param name="text">Text</param>
+        /// <returns>TimeSpan or null if failure</returns>
+        public static TimeSpan? ParseTimeSpan(this string text)
+        {
+            if (TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var result))
+            {
+                return result;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Parse text into an int
+        /// </summary>
+        /// <param name="text">Text</param>
+        /// <returns>int or null if failure</returns>
+        public static int? ParseInt(this string text)
+        {
+            if (int.TryParse(text, CultureInfo.InvariantCulture, out var result))
+            {
+                return result;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Get smallest timespan
+        /// </summary>
+        /// <param name="t1">First TimeSpan</param>
+        /// <param name="t2">Second TimeSpan</param>
+        /// <param name="defaultValue">Default if both t1 and t2 are null</param>
+        /// <returns>Smallest TimeSpan or defaultValue if both t1 and t2 are null</returns>
+        public static TimeSpan SmallestTimeSpan(TimeSpan? t1, TimeSpan? t2, TimeSpan defaultValue)
+        {
+            if (t1 is null && t2 is null)
+            {
+                return defaultValue;
+            }
+            else if (t1 is null)
+            {
+                return t2.Value;
+            }
+            else if (t2 is null)
+            {
+                return t1.Value;
+            }
+            return t1.Value > t2.Value ? t2.Value : t1.Value;
         }
 
         /// <summary>
@@ -900,129 +982,6 @@ namespace DigitalRuby.IPBanCore
         public static void SerializeUtf8Json(this object obj, Stream stream)
         {
             System.Text.Json.JsonSerializer.Serialize(stream, obj, options: jsonOptions);
-        }
-
-        private static Assembly[] allAssemblies;
-
-        /// <summary>
-        /// Get all assemblies, including referenced assemblies. This method will be cached beyond the first call.
-        /// </summary>
-        /// <returns>All referenced assemblies</returns>
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public static IReadOnlyCollection<Assembly> GetAllAssemblies()
-        {
-            if (allAssemblies != null)
-            {
-                return allAssemblies;
-            }
-
-            var allAssembliesHashSet = new HashSet<Assembly>();
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies().ToArray())
-            {
-                allAssembliesHashSet.Add(assembly);
-                AssemblyName[] references = assembly.GetReferencedAssemblies();
-                foreach (AssemblyName reference in references)
-                {
-                    try
-                    {
-                        Assembly referenceAssembly = Assembly.Load(reference);
-                        allAssembliesHashSet.Add(referenceAssembly);
-                    }
-                    catch
-                    {
-                        // don't care, if the assembly can't be loaded there's nothing more to be done
-                    }
-                }
-            }
-
-            // get referenced assemblies does not include every assembly if no code was referenced from that assembly
-            string path = AppContext.BaseDirectory;
-            string[] appFiles = Directory.GetFiles(path);
-            string pluginPath = Path.Combine(path, "plugins");
-            if (Directory.Exists(pluginPath))
-            {
-                string[] pluginFiles = Directory.GetFiles(pluginPath);
-                appFiles = appFiles.Concat(pluginFiles).ToArray();
-            }
-            foreach (string dllFile in appFiles.Where(f => f.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
-            {
-                try
-                {
-                    bool exists = false;
-                    foreach (Assembly assembly in allAssembliesHashSet)
-                    {
-                        try
-                        {
-                            exists = assembly.Location.Equals(dllFile, StringComparison.OrdinalIgnoreCase);
-                            if (exists)
-                            {
-                                break;
-                            }
-                        }
-                        catch
-                        {
-                            // some assemblies will throw upon attempt to access Location property...
-                        }
-                    }
-                    if (!exists)
-                    {
-                        allAssembliesHashSet.Add(Assembly.LoadFrom(dllFile));
-                    }
-                }
-                catch
-                {
-                    // nothing to be done
-                }
-            }
-            return allAssemblies = allAssembliesHashSet.ToArray();
-        }
-
-        private static Type[] allTypes;
-
-        /// <summary>
-        /// Get all types from all assemblies
-        /// </summary>
-        /// <returns>List of all types</returns>
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public static IReadOnlyCollection<Type> GetAllTypes()
-        {
-            if (allTypes != null)
-            {
-                return allTypes;
-            }
-            IReadOnlyCollection<Assembly> assemblies = GetAllAssemblies();
-            List<Type> types = new();
-
-            // prefix to entry assembly first pattern to greatly reduce ram usage
-            string prefix = Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty;
-            int pos = prefix.IndexOf('.');
-            if (pos >= 0)
-            {
-                pos++;
-                prefix = prefix[..pos];
-            }
-
-            // no filter if running unit tests, need to scan all assemblies
-            if (UnitTestDetector.Running)
-            {
-                prefix = null;
-            }
-
-            foreach (Assembly assembly in assemblies.Where(a => a.FullName is null ||
-                string.IsNullOrWhiteSpace(prefix) ||
-                a.FullName.StartsWith(prefix)))
-            {
-                try
-                {
-                    // some assemblys throw in unit tests in VS 2019, bug in MSFT...
-                    types.AddRange(assembly.GetTypes());
-                }
-                catch
-                {
-                    // ignore
-                }
-            }
-            return allTypes = types.ToArray();
         }
 
         /// <summary>
@@ -1256,32 +1215,6 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Get a System.Type from a string, searching loaded and referenced assemblies if needed
-        /// </summary>
-        /// <param name="typeString"></param>
-        /// <returns>System.Type or null if none found</returns>
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public static Type GetTypeFromString(string typeString)
-        {
-            Type type = Type.GetType(typeString);
-            if (type != null)
-            {
-                return type;
-            }
-
-            IReadOnlyCollection<Assembly> assemblies = GetAllAssemblies();
-            foreach (Assembly assembly in assemblies)
-            {
-                type = assembly.GetType(typeString);
-                if (type != null)
-                {
-                    return type;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>
         /// Check if type is an anonymous type
         /// </summary>
         /// <param name="type">Type</param>
@@ -1339,7 +1272,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Task that finishes when all value tasks have finished</returns>
         public static Task WhenAll(this IEnumerable<ValueTask> tasks)
         {
-            List<Task> valueTaskTasks = new();
+            List<Task> valueTaskTasks = [];
             foreach (ValueTask task in tasks)
             {
                 valueTaskTasks.Add(task.AsTask());
@@ -1355,7 +1288,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Task that finishes when all value tasks have finished</returns>
         public static Task WhenAll<T>(this IEnumerable<ValueTask<T>> tasks)
         {
-            List<Task> valueTaskTasks = new();
+            List<Task> valueTaskTasks = [];
             foreach (ValueTask<T> task in tasks)
             {
                 valueTaskTasks.Add(task.AsTask());
@@ -1471,7 +1404,7 @@ namespace DigitalRuby.IPBanCore
         /// addresses are in range</returns>
         public static IEnumerable<IPAddressRange> RemoveInternalRanges(this IPAddressRange range)
         {
-            List<IPAddressRange> results = new();
+            List<IPAddressRange> results = [];
             var internalRanges = (range.Begin.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? NetworkUtility.InternalRangesIPV4 : NetworkUtility.InternalRangesIPV6);
             foreach (var internalRange in internalRanges)
             {
@@ -1506,7 +1439,7 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Combine IPAddressRange instances that are consecutive, ranges are assumed to be sorted
+        /// Combine IPAddressRange instances that are consecutive, ranges are assumed to be unqiue and sorted
         /// </summary>
         /// <param name="ranges">Ranges</param>
         /// <returns>Combined ranges</returns>
@@ -1539,23 +1472,28 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Invert ip address ranges, the result is ranges that are every other ip address range except the provided ranges
+        /// Invert ip address ranges, the result is ranges that are every other ip address range except the provided ranges.
+        /// Ranges must be sorted with duplicates removed
         /// </summary>
         /// <param name="ranges">Ranges</param>
+        /// <param name="removeInternal">Whether to remove internal ranges</param>
         /// <returns>Inverted ip address ranges, in sorted order and combined where needed</returns>
-        public static IEnumerable<IPAddressRange> Invert(this IEnumerable<IPAddressRange> ranges)
+        public static IEnumerable<IPAddressRange> Invert(this IEnumerable<IPAddressRange> ranges, bool removeInternal = true)
         {
-            // remove duplicates, make sure list is sorted
-            var sortedRanges = ranges.Distinct().OrderBy(r => r).ToArray();
-
             static IEnumerable<IPAddressRange> ProcessRanges(IEnumerable<IPAddressRange> _ranges,
                 System.Net.IPAddress startPrev,
                 System.Net.IPAddress lastPrev,
-                System.Net.Sockets.AddressFamily addressFamily)
+                System.Net.Sockets.AddressFamily addressFamily,
+                bool removeInternal)
             {
                 IPAddressRange leftGap = null;
                 System.Net.IPAddress endPrev = null;
-                foreach (var range in Combine(_ranges.Where(r => r.Begin.AddressFamily == addressFamily).SelectMany(r => r.RemoveInternalRanges())))
+                var query = _ranges.Where(r => r.Begin.AddressFamily == addressFamily);
+                if (removeInternal)
+                {
+                    query = query.SelectMany(r => r.RemoveInternalRanges());
+                }
+                foreach (var range in query)
                 {
                     // left gap
                     if (range.Begin.TryDecrement(out endPrev) &&
@@ -1588,13 +1526,111 @@ namespace DigitalRuby.IPBanCore
                 }
             }
 
-            foreach (var range in Combine(ProcessRanges(sortedRanges, NetworkUtility.FirstIPV4, NetworkUtility.LastIPV4, System.Net.Sockets.AddressFamily.InterNetwork)))
             {
-                yield return range;
+                var ipv4Ranges = ProcessRanges(ranges, NetworkUtility.FirstIPV4, NetworkUtility.LastIPV4, System.Net.Sockets.AddressFamily.InterNetwork, removeInternal);
+                foreach (var range in Combine(ipv4Ranges))
+                {
+                    yield return range;
+                }
             }
-            foreach (var range in Combine(ProcessRanges(sortedRanges, NetworkUtility.FirstIPV6, NetworkUtility.LastIPV6, System.Net.Sockets.AddressFamily.InterNetworkV6)))
             {
-                yield return range;
+                var ipv6Ranges = ProcessRanges(ranges, NetworkUtility.FirstIPV6, NetworkUtility.LastIPV6, System.Net.Sockets.AddressFamily.InterNetworkV6, removeInternal);
+                foreach (var range in Combine(ipv6Ranges))
+                {
+                    yield return range;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Normalize string for query
+        /// </summary>
+        /// <param name="s">String</param>
+        /// <returns>Normalized string</returns>
+        public static string NormalizeForQuery(this string s)
+        {
+            if (s is null)
+            {
+                return s;
+            }
+            s = s.Normalize(NormalizationForm.FormD);
+            StringBuilder result = new();
+            bool lastWasSpace = true;
+            foreach (char c in s)
+            {
+                switch (char.GetUnicodeCategory(c))
+                {
+                    case System.Globalization.UnicodeCategory.DecimalDigitNumber:
+                    case System.Globalization.UnicodeCategory.LetterNumber:
+                    case System.Globalization.UnicodeCategory.LowercaseLetter:
+                    case System.Globalization.UnicodeCategory.OtherLetter:
+                    case System.Globalization.UnicodeCategory.OtherNumber:
+                    case System.Globalization.UnicodeCategory.TitlecaseLetter:
+                    case System.Globalization.UnicodeCategory.UppercaseLetter:
+                        result.Append(char.ToLowerInvariant(c));
+                        lastWasSpace = false;
+                        break;
+
+                    default:
+                        if (!lastWasSpace)
+                        {
+                            result.Append(' ');
+                            lastWasSpace = true;
+                        }
+                        break;
+                }
+            }
+
+            // trim end spaces without making more garbage
+            while (result.Length > 0 && result[^1] == ' ')
+            {
+                result.Length--;
+            }
+
+            return result.ToString();
+        }
+
+        /// <summary>
+        /// Get all entries from sorted list that match a prefix
+        /// </summary>
+        /// <typeparam name="TValue">Type of value</typeparam>
+        /// <param name="sortedList">Sorted list</param>
+        /// <param name="prefix">Prefix to query, does not need to be normalized</param>
+        /// <returns>All matching entries</returns>
+        public static IEnumerable<KeyValuePair<string, TValue>> GetEntriesMatchingPrefix<TValue>(this SortedList<string, TValue> sortedList, string prefix)
+        {
+            int lower = 0;
+            int upper = sortedList.Count - 1;
+            int middle;
+            int compare;
+            prefix = NormalizeForQuery(prefix);
+
+            // Perform binary search to find the first occurrence of the prefix
+            while (lower <= upper)
+            {
+                middle = lower + (upper - lower) / 2;
+                compare = string.Compare(prefix, sortedList.Keys[middle], true);
+                if (compare == 0)
+                {
+                    lower = middle;
+                    break;
+                }
+                else if (compare < 0)
+                {
+                    // Move upper down to find the first match
+                    upper = middle - 1;
+                }
+                else
+                {
+                    lower = middle + 1;
+                }
+            }
+
+            // Iterate forward from the found index
+            for (int i = lower; i < sortedList.Count && sortedList.Keys[i].StartsWith(prefix, StringComparison.OrdinalIgnoreCase); i++)
+            {
+                var kv = new KeyValuePair<string, TValue>(sortedList.Keys[i], sortedList.Values[i]);
+                yield return kv;
             }
         }
     }

@@ -27,7 +27,6 @@ SOFTWARE.
 using Microsoft.Extensions.Logging;
 
 using NLog;
-using NLog.Config;
 
 using System;
 using System.IO;
@@ -114,7 +113,7 @@ namespace DigitalRuby.IPBanCore
     /// </summary>
     public static class Logger
     {
-        private class NLogWrapper : Microsoft.Extensions.Logging.ILogger
+        private class NLogWrapper(NLog.Logger logger) : Microsoft.Extensions.Logging.ILogger
         {
             private class EmptyDisposable : IDisposable
             {
@@ -122,12 +121,7 @@ namespace DigitalRuby.IPBanCore
             }
 
             private static readonly EmptyDisposable emptyDisposable = new();
-            private readonly NLog.Logger logger;
-
-            public NLogWrapper(NLog.Logger logger)
-            {
-                this.logger = logger;
-            }
+            private readonly NLog.Logger logger = logger;
 
             public IDisposable BeginScope<TState>(TState state)
             {
@@ -203,7 +197,9 @@ namespace DigitalRuby.IPBanCore
                 LogFactory factory;
                 if (File.Exists(nlogConfigPath))
                 {
+#pragma warning disable CS0618 // Type or member is obsolete
                     factory = LogManager.LoadConfiguration(nlogConfigPath);
+#pragma warning restore CS0618 // Type or member is obsolete
                 }
                 else
                 {
@@ -540,6 +536,9 @@ namespace DigitalRuby.IPBanCore
             Log(level, IPBanService.UtcNow, text, args);
         }
 
+        [ThreadStatic]
+        private static bool inLog;
+
         /// <summary>
         /// Write to the log
         /// </summary>
@@ -562,12 +561,34 @@ namespace DigitalRuby.IPBanCore
 #endif
 
                 //timeSource.CurrentTime = ts;
-                nlogInstance?.Log(GetNLogLevel(level), text, args);
+                var nLogLevel = GetNLogLevel(level);
+                var instance = nlogInstance;
+                if (instance is not null)
+                {
+                    instance.Log(nLogLevel, text, args);
+                    if (!inLog && instance.IsEnabled(nLogLevel))
+                    {
+                        inLog = true;
+                        try
+                        {
+                            OnLog?.Invoke(level, ts, text, args);
+                        }
+                        finally
+                        {
+                            inLog = false;
+                        }
+                    }
+                }
             }
             catch
             {
             }
         }
+
+        /// <summary>
+        /// OnLog event
+        /// </summary>
+        public static event Action<IPBanCore.LogLevel, DateTime, string, object[]> OnLog;
 
         /// <summary>
         /// Internal access to the logger
@@ -578,7 +599,7 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Information about an ip address from a log entry
     /// </summary>
-    public class IPAddressLogEvent
+    public sealed class IPAddressLogEvent
     {
         /// <summary>
         /// Constructor
@@ -595,10 +616,12 @@ namespace DigitalRuby.IPBanCore
         /// <param name="logLevel">Log level when the event is logged</param>
         /// <param name="logData">Log data, if any</param>
         /// <param name="notificationFlags">Notification flags</param>
+        /// <param name="minimumTimeBetweenLogins">Minimum time between logins</param>
         public IPAddressLogEvent(string ipAddress, string userName, string source,
             int count, IPAddressEventType type, DateTime timestamp = default, bool external = false,
             string extraInfo = null, int failedLoginThreshold = 0, LogLevel logLevel = LogLevel.Warning,
-            string logData = null, IPAddressNotificationFlags notificationFlags = IPAddressNotificationFlags.None)
+            string logData = null, IPAddressNotificationFlags notificationFlags = IPAddressNotificationFlags.None,
+            TimeSpan? minimumTimeBetweenLogins = null)
         {
             // normalize ip address if possible
             if (System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress parsedIPAddress))
@@ -620,6 +643,7 @@ namespace DigitalRuby.IPBanCore
             LogLevel = logLevel;
             LogData = logData;
             NotificationFlags = notificationFlags;
+            MinimumTimeBetweenLogins = minimumTimeBetweenLogins;
         }
 
         /// <summary>
@@ -675,6 +699,11 @@ namespace DigitalRuby.IPBanCore
         /// Failed login threshold or 0 for default
         /// </summary>
         public int FailedLoginThreshold { get; set; }
+
+        /// <summary>
+        /// Minimum time between logins or null for default
+        /// </summary>
+        public TimeSpan? MinimumTimeBetweenLogins { get; set; }
 
         /// <summary>
         /// Log level

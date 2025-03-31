@@ -22,8 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace DigitalRuby.IPBanCore
@@ -35,7 +35,9 @@ namespace DigitalRuby.IPBanCore
     {
         private readonly IIPAddressEventHandler eventHandler;
         private readonly IDnsLookup dns;
+        private readonly string regexFailureString;
         private readonly Regex regexFailure;
+        private readonly string regexSuccessString;
         private readonly Regex regexSuccess;
         private readonly string regexFailureTimestampFormat;
         private readonly string regexSuccessTimestampFormat;
@@ -49,6 +51,11 @@ namespace DigitalRuby.IPBanCore
         /// Failed login threshold or 0 for default
         /// </summary>
         public int FailedLoginThreshold { get; }
+
+        /// <summary>
+        /// Failed login minimum timespan
+        /// </summary>
+        public TimeSpan? FailedLoginMinimumTimespan { get; }
 
         /// <summary>
         /// Failed login log level
@@ -69,7 +76,7 @@ namespace DigitalRuby.IPBanCore
         /// Create a log file scanner
         /// </summary>
         /// <param name="options">Options</param>
-        public IPBanLogFileScanner(IPBanIPAddressLogFileScannerOptions options) : base(options.PathAndMask, options.MaxFileSizeBytes, options.PingIntervalMilliseconds, options.Encoding, options.MaxLineLength)
+        public IPBanLogFileScanner(LogScannerOptions options) : base(options.PathAndMask, options.MaxFileSizeBytes, options.PingIntervalMilliseconds, options.Encoding, options.MaxLineLength)
         {
             options.ThrowIfNull(nameof(options));
             options.EventHandler.ThrowIfNull(nameof(options.EventHandler));
@@ -77,25 +84,23 @@ namespace DigitalRuby.IPBanCore
             Source = options.Source;
             FailedLoginThreshold = options.FailedLoginThreshold;
             FailedLogLevel = options.FailedLogLevel;
+            FailedLoginMinimumTimespan = options.MinimumTimeBetweenFailedLoginAttempts;
             SuccessfulLogLevel = options.SuccessfulLogLevel;
             NotificationFlags = options.NotificationFlags;
 
             this.eventHandler = options.EventHandler;
             this.dns = options.Dns;
 
-            this.regexFailure = options.RegexFailure;
+            this.regexFailure = IPBanRegexParser.ParseRegex(options.RegexFailure, true);
+            this.regexFailureString = regexFailure?.ToString();
             this.regexFailureTimestampFormat = options.RegexFailureTimestampFormat;
-
-            this.regexSuccess = options.RegexSuccess;
+            this.regexSuccess = IPBanRegexParser.ParseRegex(options.RegexSuccess, true);
+            this.regexSuccessString = regexSuccess?.ToString();
             this.regexSuccessTimestampFormat = options.RegexSuccessTimestampFormat;
         }
 
-        /// <summary>
-        /// Check if this log file scanner matches all the provided options
-        /// </summary>
-        /// <param name="options">Options</param>
-        /// <returns>True if matches options, false otherwise</returns>
-        public bool MatchesOptions(IPBanIPAddressLogFileScannerOptions options)
+        /// <inheritdoc />
+        public override bool MatchesOptions(LogScannerOptions options)
         {
             if (options is null)
             {
@@ -105,13 +110,14 @@ namespace DigitalRuby.IPBanCore
             return Source == options.Source &&
                 FailedLoginThreshold == options.FailedLoginThreshold &&
                 FailedLogLevel == options.FailedLogLevel &&
+                FailedLoginMinimumTimespan == options.MinimumTimeBetweenFailedLoginAttempts &&
                 NotificationFlags == options.NotificationFlags &&
                 SuccessfulLogLevel == options.SuccessfulLogLevel &&
                 this.eventHandler == options.EventHandler &&
                 this.dns == options.Dns &&
-                this.regexFailure?.ToString() == options.RegexFailure?.ToString() &&
+                this.regexFailureString == options.RegexFailure &&
                 this.regexFailureTimestampFormat == options.RegexFailureTimestampFormat &&
-                this.regexSuccess?.ToString() == options.RegexSuccess?.ToString() &&
+                this.regexSuccessString == options.RegexSuccess &&
                 this.regexSuccessTimestampFormat == options.RegexSuccessTimestampFormat;
         }
 
@@ -125,7 +131,7 @@ namespace DigitalRuby.IPBanCore
 
         private void ParseRegex(Regex regex, string text, bool successful, string timestampFormat)
         {
-            List<IPAddressLogEvent> events = new();
+            List<IPAddressLogEvent> events = [];
             IPAddressEventType type = (successful ? IPAddressEventType.SuccessfulLogin : IPAddressEventType.FailedLogin);
             foreach (IPAddressLogEvent info in IPBanRegexParser.GetIPAddressEventsFromRegex(regex, text, timestampFormat, type, Source, dns))
             {
@@ -134,6 +140,7 @@ namespace DigitalRuby.IPBanCore
                 {
                     info.FailedLoginThreshold = FailedLoginThreshold;
                 }
+                info.MinimumTimeBetweenLogins ??= FailedLoginMinimumTimespan;
                 if (successful)
                 {
                     info.LogLevel = SuccessfulLogLevel;
@@ -150,92 +157,5 @@ namespace DigitalRuby.IPBanCore
             }
             eventHandler.AddIPAddressLogEvents(events);
         }
-    }
-
-    /// <summary>
-    /// Options for IPBanIPAddressLogFileScanner
-    /// </summary>
-    public class IPBanIPAddressLogFileScannerOptions
-    {
-        /// <summary>
-        /// Event handler
-        /// </summary>
-        public IIPAddressEventHandler EventHandler { get; set; }
-
-        /// <summary>
-        /// Dns lookup
-        /// </summary>
-        public IDnsLookup Dns { get; set; }
-
-        /// <summary>
-        /// Default source
-        /// </summary>
-        public string Source { get; set; }
-
-        /// <summary>
-        /// Folder and file mask to search
-        /// </summary>
-        public string PathAndMask { get; set; }
-
-        /// <summary>
-        /// Regular expression for failed logins, should at minimum have an ipaddress group, but can also have
-        /// a timestamp group, source group and username group.
-        /// </summary>
-        public Regex RegexFailure { get; set; }
-
-        /// <summary>
-        /// Optional date/time format if RegexFailure has a timestamp group
-        /// </summary>
-        public string RegexFailureTimestampFormat { get; set; }
-
-        /// <summary>
-        /// Regular expression for successful logins, see RegexFailure for regex group names.
-        /// </summary>
-        public Regex RegexSuccess { get; set; }
-
-        /// <summary>
-        /// Optional date/time format if RegexSuccess has a timestamp group
-        /// </summary>
-        public string RegexSuccessTimestampFormat { get; set; }
-
-        /// <summary>
-        /// Max file size for the log file before auto-deleting, default is unlimited
-        /// </summary>
-        public long MaxFileSizeBytes { get; set; }
-
-        /// <summary>
-        /// Interval to ping the log file, default is 0 which means manual ping is required
-        /// </summary>
-        public int PingIntervalMilliseconds { get; set; }
-
-        /// <summary>
-        /// Encoding
-        /// </summary>
-        public Encoding Encoding { get; set; } = Encoding.UTF8;
-
-        /// <summary>
-        /// Max line length or 0 for unlimited - be careful using 0, performance can suffer
-        /// </summary>
-        public ushort MaxLineLength { get; set; } = 8192;
-
-        /// <summary>
-        /// Failed login threshold or 0 for default
-        /// </summary>
-        public int FailedLoginThreshold { get; set; }
-
-        /// <summary>
-        /// Log level for failed logins
-        /// </summary>
-        public LogLevel FailedLogLevel { get; set; }
-
-        /// <summary>
-        /// Log level for successful logins
-        /// </summary>
-        public LogLevel SuccessfulLogLevel { get; set; }
-
-        /// <summary>
-        /// Notification flags
-        /// </summary>
-        public IPAddressNotificationFlags NotificationFlags { get; set; }
     }
 }

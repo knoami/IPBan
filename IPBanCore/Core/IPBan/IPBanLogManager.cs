@@ -32,23 +32,23 @@ using System.Threading.Tasks;
 namespace DigitalRuby.IPBanCore
 {
     /// <summary>
-    /// Responsible for managing and parsing log files for failed and successful logins
+    /// Responsible for managing and parsing logs for failed and successful logins
     /// </summary>
-    public class IPBanLogFileManager : IUpdater
+    public sealed class IPBanLogManager : IUpdater
     {
         private readonly IIPBanService service;
-        private readonly HashSet<IPBanLogFileScanner> logFilesToParse = new();
+        private readonly HashSet<ILogScanner> logsToParse = [];
 
         /// <summary>
         /// Log files to parse
         /// </summary>
-        public IReadOnlyCollection<LogFileScanner> LogFilesToParse { get { return logFilesToParse; } }
+        public IReadOnlyCollection<ILogScanner> LogFilesToParse { get { return logsToParse; } }
 
         /// <summary>
         /// Constructor
         /// </summary>
         /// <param name="service">Service</param>
-        public IPBanLogFileManager(IIPBanService service)
+        public IPBanLogManager(IIPBanService service)
         {
             this.service = service;
             service.ConfigChanged += UpdateLogFiles;
@@ -60,9 +60,9 @@ namespace DigitalRuby.IPBanCore
             UpdateLogFiles(service.Config);
             if (service.ManualCycle)
             {
-                foreach (IPBanLogFileScanner scanner in logFilesToParse)
+                foreach (var scanner in logsToParse)
                 {
-                    scanner.ProcessFiles();
+                    scanner.Update();
                 }
             }
             return Task.CompletedTask;
@@ -74,7 +74,7 @@ namespace DigitalRuby.IPBanCore
             GC.SuppressFinalize(this);
 
             service.ConfigChanged -= UpdateLogFiles;
-            foreach (LogFileScanner file in logFilesToParse)
+            foreach (var file in logsToParse)
             {
                 file.Dispose();
             }
@@ -83,15 +83,15 @@ namespace DigitalRuby.IPBanCore
         private void UpdateLogFiles(IPBanConfig newConfig)
         {
             // remove existing log files that are no longer in config
-            foreach (IPBanLogFileScanner file in logFilesToParse.ToArray())
+            foreach (var file in logsToParse.ToArray())
             {
                 if (newConfig.LogFilesToParse.FirstOrDefault(f => f.PathsAndMasks.Contains(file.PathAndMask)) is null)
                 {
                     file.Dispose();
-                    logFilesToParse.Remove(file);
+                    logsToParse.Remove(file);
                 }
             }
-            foreach (IPBanLogFileToParse newFile in newConfig.LogFilesToParse)
+            foreach (var newFile in newConfig.LogFilesToParse)
             {
                 string[] pathsAndMasks = newFile.PathsAndMasks;
                 for (int i = 0; i < pathsAndMasks.Length; i++)
@@ -100,19 +100,20 @@ namespace DigitalRuby.IPBanCore
                     if (!string.IsNullOrWhiteSpace(pathAndMask))
                     {
                         // if we don't have this log file and the platform matches, add it
-                        IPBanLogFileScanner existingScanner = logFilesToParse.FirstOrDefault(f => f.PathAndMask == pathAndMask);
+                        var existingScanner = logsToParse.FirstOrDefault(f => f.PathAndMask == pathAndMask);
 
-                        IPBanIPAddressLogFileScannerOptions options = new()
+                        LogScannerOptions options = new()
                         {
                             Dns = service.DnsLookup,
                             EventHandler = service,
                             MaxFileSizeBytes = newFile.MaxFileSize,
                             PathAndMask = pathAndMask,
                             PingIntervalMilliseconds = (service.ManualCycle ? 0 : newFile.PingInterval),
-                            RegexFailure = IPBanRegexParser.ParseRegex(newFile.FailedLoginRegex, true),
-                            RegexSuccess = IPBanRegexParser.ParseRegex(newFile.SuccessfulLoginRegex, true),
+                            RegexFailure = newFile.FailedLoginRegex,
+                            RegexSuccess = newFile.SuccessfulLoginRegex,
                             RegexFailureTimestampFormat = newFile.FailedLoginRegexTimestampFormat,
                             RegexSuccessTimestampFormat = newFile.SuccessfulLoginRegexTimestampFormat,
+                            MinimumTimeBetweenFailedLoginAttempts = newFile.MinimumTimeBetweenFailedLoginAttempts.ParseTimeSpan(),
                             Source = newFile.Source,
                             FailedLoginThreshold = newFile.FailedLoginThreshold,
                             FailedLogLevel = newFile.FailedLoginLogLevel,
@@ -124,23 +125,29 @@ namespace DigitalRuby.IPBanCore
                         // and we will add a new one with updated config
                         if (existingScanner is not null && !existingScanner.MatchesOptions(options))
                         {
+                            if (existingScanner.PathAndMask == options.PathAndMask)
+                            {
+                                // the existing scanner will get replaced, but we notify the user so they can fix the issue
+                                Logger.Error("Multiple log file scanners detected with identical path and mask {0}. Use junctions if you need multiple log file scanners on the same directory.", existingScanner.PathAndMask);
+                            }
+
                             // TODO: Add unit/integration test for this case
                             Logger.Info("Log file options changed for path/mask {0}", pathAndMask);
-                            logFilesToParse.RemoveWhere(f => f.PathAndMask == pathAndMask);
+                            logsToParse.RemoveWhere(f => f.PathAndMask == pathAndMask);
                             existingScanner.Dispose();
                             existingScanner = null;
                         }
 
                         // make sure we match the platform before potentially making a new log file scanner
-                        bool platformMatches = !string.IsNullOrWhiteSpace(newFile.PlatformRegex) &&
-                            Regex.IsMatch(OSUtility.Description, newFile.PlatformRegex.ToString().Trim(),
-                            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                        var regexToMatch = newFile.PlatformRegex?.ToString()?.Trim();
+                        var regexOptions = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+                        bool platformMatches = !string.IsNullOrWhiteSpace(regexToMatch) &&
+                            (Regex.IsMatch(OSUtility.Description, regexToMatch, regexOptions) ||
+                            Regex.IsMatch(OSUtility.Name, regexToMatch, regexOptions));
 
                         if (existingScanner is null && platformMatches)
                         {
-                            // log files use a timer internally and do not need to be updated regularly
-                            IPBanLogFileScanner scanner = new(options);
-                            logFilesToParse.Add(scanner);
+                            service.AddLogScanner(options, logsToParse);
                             Logger.Info("Adding log file to parse: {0}", pathAndMask);
                         }
                         else

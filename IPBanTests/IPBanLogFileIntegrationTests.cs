@@ -25,6 +25,7 @@ SOFTWARE.
 using DigitalRuby.IPBanCore;
 
 using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 using System;
 using System.Collections.Generic;
@@ -39,8 +40,8 @@ namespace DigitalRuby.IPBanTests
     public class IPBanLogFileIntegrationTests : IIPBanDelegate
     {
         private IPBanService service;
-        private readonly List<IPAddressLogEvent> failedEvents = new();
-        private readonly List<IPAddressLogEvent> successfulEvents = new();
+        private readonly List<IPAddressLogEvent> failedEvents = [];
+        private readonly List<IPAddressLogEvent> successfulEvents = [];
 
         [SetUp]
         public void Setup()
@@ -84,34 +85,44 @@ namespace DigitalRuby.IPBanTests
 
             await RunTest("//LogFile[Source='MSExchange']", "TestData/**/Exchange/*.log");
 
-            Assert.AreEqual(1, successfulEvents.Count);
-            Assert.AreEqual("180.20.20.20", successfulEvents[0].IPAddress);
+            ClassicAssert.AreEqual(1, successfulEvents.Count);
+            ClassicAssert.AreEqual("180.20.20.20", successfulEvents[0].IPAddress);
             for (int i = 0; i < successfulEvents.Count; i++)
             {
-                Assert.AreEqual("MSExchange", successfulEvents[i].Source);
-                Assert.AreEqual(IPAddressEventType.SuccessfulLogin, successfulEvents[i].Type);
-                Assert.AreEqual("user", successfulEvents[i].UserName);
+                ClassicAssert.AreEqual("MSExchange", successfulEvents[i].Source);
+                ClassicAssert.AreEqual(IPAddressEventType.SuccessfulLogin, successfulEvents[i].Type);
+                ClassicAssert.AreEqual("user", successfulEvents[i].UserName);
             }
 
             // 37.49.225.153, UserName: p.kurowicki@gios.gov.pl, Source: MSExchange, Count: 1, Type: FailedLogin, Timestamp: 6/26/2021 3:01:36 PM}
-            Assert.AreEqual(5, failedEvents.Count);
-            Assert.AreEqual("90.30.30.30", failedEvents[0].IPAddress);
-            Assert.AreEqual("180.60.60.60", failedEvents[1].IPAddress);
-            Assert.AreEqual("109.75.46.81", failedEvents[2].IPAddress);
-            Assert.AreEqual("27.255.75.110", failedEvents[3].IPAddress);
-            Assert.AreEqual("37.49.225.153", failedEvents[4].IPAddress);
+            ClassicAssert.AreEqual(7, failedEvents.Count);
+            failedEvents.Sort((x, y) => x.IPAddress.CompareTo(y.IPAddress));
+
+            ClassicAssert.AreEqual("109.75.46.81", failedEvents[0].IPAddress);
+            ClassicAssert.AreEqual("user", failedEvents[0].UserName);
+
+            ClassicAssert.AreEqual("180.60.60.60", failedEvents[1].IPAddress);
+            ClassicAssert.AreEqual("user", failedEvents[1].UserName);
+
+            ClassicAssert.AreEqual("27.255.75.110", failedEvents[2].IPAddress);
+            ClassicAssert.AreEqual(string.Empty, failedEvents[2].UserName);
+
+            ClassicAssert.AreEqual("37.49.225.153", failedEvents[3].IPAddress);
+            ClassicAssert.AreEqual("user", failedEvents[3].UserName);
+
+            ClassicAssert.AreEqual("54.212.131.181", failedEvents[4].IPAddress);
+            ClassicAssert.AreEqual("exctest", failedEvents[4].UserName);
+
+            ClassicAssert.AreEqual("54.212.131.182", failedEvents[5].IPAddress);
+            ClassicAssert.AreEqual("exctest", failedEvents[5].UserName);
+
+            ClassicAssert.AreEqual("90.30.30.30", failedEvents[6].IPAddress);
+            ClassicAssert.AreEqual("user", failedEvents[6].UserName);
+
             for (int i = 0; i < failedEvents.Count; i++)
             {
-                Assert.AreEqual("MSExchange", failedEvents[i].Source);
-                if (i != failedEvents.Count - 2)
-                {
-                    Assert.AreEqual("user", failedEvents[i].UserName);
-                }
-                else
-                {
-                    Assert.AreEqual(string.Empty, failedEvents[i].UserName);
-                }
-                Assert.AreEqual(IPAddressEventType.FailedLogin, failedEvents[i].Type);
+                ClassicAssert.AreEqual("MSExchange", failedEvents[i].Source);
+                ClassicAssert.AreEqual(IPAddressEventType.FailedLogin, failedEvents[i].Type);
             }
         }
 
@@ -121,41 +132,81 @@ namespace DigitalRuby.IPBanTests
             string path = Path.Combine(AppContext.BaseDirectory, "TestData/LogFiles/Apache/everything.log");
             await RunTest(null, path, doc =>
             {
-                XmlNode logFiles = doc.SelectSingleNode("//LogFiles");
-                XmlNode logFile = doc.CreateElement("LogFile");
-                XmlNode source = doc.CreateElement("Source");
+                var logFiles = doc.SelectSingleNode("//LogFiles");
+                var logFile = doc.CreateElement("LogFile");
+                var source = doc.CreateElement("Source");
                 source.InnerText = "Apache";
                 logFile.AppendChild(source);
-                XmlNode pathAndMask = doc.CreateElement("PathAndMask");
+                var pathAndMask = doc.CreateElement("PathAndMask");
                 pathAndMask.InnerText = path;
                 logFile.AppendChild(pathAndMask);
-                XmlNode failedLoginRegex = doc.CreateElement("FailedLoginRegex");
+                var failedLoginRegex = doc.CreateElement("FailedLoginRegex");
                 failedLoginRegex.InnerText = @"\n(?<ipaddress>[^\s]+)[^\[]+\[(?<timestamp>[^\]]+)\]\s""(?:\\x|[^\n]+?\s(?:301|40[04])\s[0-9\-])[^\n]*";
                 logFile.AppendChild(failedLoginRegex);
-                XmlNode failedLoginRegexTimestampFormat = doc.CreateElement("FailedLoginRegexTimestampFormat");
+                var failedLoginRegexTimestampFormat = doc.CreateElement("FailedLoginRegexTimestampFormat");
                 failedLoginRegexTimestampFormat.InnerText = "dd/MMM/yyyy:HH:mm:ss zzzz";
                 logFile.AppendChild(failedLoginRegexTimestampFormat);
-                XmlNode platformRegex = doc.CreateElement("PlatformRegex");
+                var platformRegex = doc.CreateElement("PlatformRegex");
                 platformRegex.InnerText = ".";
                 logFile.AppendChild(platformRegex);
-                XmlNode pingInterval = doc.CreateElement("PingInterval");
+                var pingInterval = doc.CreateElement("PingInterval");
                 pingInterval.InnerText = "10000";
                 logFile.AppendChild(pingInterval);
-                XmlNode maxFileSize = doc.CreateElement("MaxFileSize");
+                var maxFileSize = doc.CreateElement("MaxFileSize");
                 maxFileSize.InnerText = "0";
                 logFile.AppendChild(maxFileSize);
-                XmlNode failedLoginThreshold = doc.CreateElement("FailedLoginThreshold");
+                var failedLoginThreshold = doc.CreateElement("FailedLoginThreshold");
                 failedLoginThreshold.InnerText = "0";
                 logFile.AppendChild(failedLoginThreshold);
                 logFiles.AppendChild(logFile);
 
-                XmlNode minTimeBetweenFailures = doc.SelectSingleNode("//add[@key='MinimumTimeBetweenFailedLoginAttempts']");
+                var minTimeBetweenFailures = doc.SelectSingleNode("//add[@key='MinimumTimeBetweenFailedLoginAttempts']");
                 minTimeBetweenFailures.Attributes["value"].Value = "00:00:00:00";
             });
 
-            Assert.AreEqual(0, successfulEvents.Count);
-            Assert.AreEqual(1, failedEvents.Count);
-            Assert.AreEqual(6, failedEvents.First().Count);
+            ClassicAssert.AreEqual(0, successfulEvents.Count);
+            ClassicAssert.AreEqual(1, failedEvents.Count);
+            ClassicAssert.AreEqual(6, failedEvents.First().Count);
+        }
+
+        [Test]
+        public async Task TestLogFilesRDWeb()
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "TestData/LogFiles/RDWeb/everything.log");
+            await RunTest(null, path, doc =>
+            {
+                var logFiles = doc.SelectSingleNode("//LogFiles");
+                var logFile = doc.CreateElement("LogFile");
+                var source = doc.CreateElement("Source");
+                source.InnerText = "RDWeb";
+                logFile.AppendChild(source);
+                var pathAndMask = doc.CreateElement("PathAndMask");
+                pathAndMask.InnerText = path;
+                logFile.AppendChild(pathAndMask);
+                var failedLoginRegex = doc.CreateElement("FailedLoginRegex");
+                failedLoginRegex.InnerText = @"(?<timestamp_utc>\d\d\d\d\-\d\d\-\d\d\s\d\d\:\d\d\:\d\d)\s[^\s]+\sPOST\s\/RDWeb\/Pages\/[^\/]+\/login\.aspx\s[^\s]+\s[0-9]+\s-\s(?<ipaddress>[^\s]+).*\s200\s[^\n]+\n";
+                logFile.AppendChild(failedLoginRegex);
+                var platformRegex = doc.CreateElement("PlatformRegex");
+                platformRegex.InnerText = ".";
+                logFile.AppendChild(platformRegex);
+                var pingInterval = doc.CreateElement("PingInterval");
+                pingInterval.InnerText = "10000";
+                logFile.AppendChild(pingInterval);
+                var maxFileSize = doc.CreateElement("MaxFileSize");
+                maxFileSize.InnerText = "0";
+                logFile.AppendChild(maxFileSize);
+                var failedLoginThreshold = doc.CreateElement("FailedLoginThreshold");
+                failedLoginThreshold.InnerText = "0";
+                logFile.AppendChild(failedLoginThreshold);
+                var minTimeFailedLogins = doc.CreateElement("MinimumTimeBetweenFailedLoginAttempts");
+                minTimeFailedLogins.InnerText = "00:00:00:00";
+                logFile.AppendChild(minTimeFailedLogins);
+                logFiles.AppendChild(logFile);
+            });
+
+            ClassicAssert.AreEqual(0, successfulEvents.Count);
+            ClassicAssert.AreEqual(1, failedEvents.Count);
+            ClassicAssert.AreEqual(5, failedEvents.First().Count);
         }
 
         private async Task RunTest(string pathAndMaskXPath, string pathAndMaskOverride, Action<XmlDocument> modifier = null)
@@ -171,8 +222,8 @@ namespace DigitalRuby.IPBanTests
                 doc.LoadXml(config);
                 if (!string.IsNullOrWhiteSpace(pathAndMaskXPath))
                 {
-                    XmlNode logFileNode = doc.SelectSingleNode(pathAndMaskXPath);
-                    XmlNode pathAndMask = logFileNode["PathAndMask"];
+                    var logFileNode = doc.SelectSingleNode(pathAndMaskXPath);
+                    var pathAndMask = logFileNode["PathAndMask"];
                     pathAndMask.InnerText = pathAndMaskOverride;
                 }
                 modifier?.Invoke(doc);
@@ -181,7 +232,7 @@ namespace DigitalRuby.IPBanTests
             service.IPBanDelegate = this;
 
             // read all the files, save contents in memory temporarily
-            Dictionary<string, string> files = new();
+            Dictionary<string, string> files = [];
             foreach (var file in LogFileScanner.GetFiles(pathAndMaskOverride))
             {
                 files[file.FileName] = File.ReadAllText(file.FileName);

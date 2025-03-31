@@ -24,6 +24,7 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,16 +33,13 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Mac firewall (not implemented)
     /// </summary>
+    /// <remarks>
+    /// Constructor
+    /// </remarks>
+    /// <param name="rulePrefix">Rule prefix</param>
     [RequiredOperatingSystem(OSUtility.Mac)]
-    public class IPBanMacFirewall : IPBanBaseFirewall
+    public class IPBanMacFirewall(string rulePrefix = null) : IPBanBaseFirewall(rulePrefix)
     {
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="rulePrefix">Rule prefix</param>
-        public IPBanMacFirewall(string rulePrefix = null) : base(rulePrefix)
-        {
-        }
 
         /// <inheritdoc />
         public override Task<bool> AllowIPAddresses(IEnumerable<string> ipAddresses, CancellationToken cancelToken = default)
@@ -86,31 +84,31 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateAllowedIPAddresses()
+        public override IEnumerable<string> EnumerateAllowedIPAddresses(string ruleNamePrefix = null)
         {
             throw new NotImplementedException();
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateBannedIPAddresses()
-        {
-            throw new NotImplementedException();
-        }
-
-        /// <inheritdoc />
-        public override bool IsIPAddressAllowed(string ipAddress, int port = -1)
-        {
-            throw new NotImplementedException();
-        }
-
-        /// <inheritdoc />
-        public override bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = -1)
+        public override IEnumerable<string> EnumerateBannedIPAddresses(string ruleNamePrefix = null)
         {
             throw new NotImplementedException();
         }
 
         /// <inheritdoc />
         public override IEnumerable<IPAddressRange> EnumerateIPAddresses(string ruleNamePrefix = null)
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <inheritdoc />
+        public override string GetPorts(string ruleName)
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <inheritdoc />
+        public override IPBanMemoryFirewall Compile()
         {
             throw new NotImplementedException();
         }

@@ -33,25 +33,20 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Linux firewall implementation using iptables
     /// </summary>
-    [RequiredOperatingSystem(OSUtility.Linux)]
+    [RequiredOperatingSystem(OSUtility.Linux, PriorityEnvironmentVariable = "IPBanPro_LinuxFirewallIPTablesPriority")]
     [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All)]
     public class IPBanLinuxFirewallIPTables : IPBanLinuxBaseFirewallIPTables
     {
         /// <summary>
         /// Linux Firewall iptables for IPV6, is wrapped inside IPBanLinuxFirewallIPTables
         /// </summary>
-        private sealed class IPBanLinuxFirewallIPTables6 : IPBanLinuxBaseFirewallIPTables
+        private sealed class IPBanLinuxFirewallIPTables6(string rulePrefix) : IPBanLinuxBaseFirewallIPTables(rulePrefix + "6_")
         {
             protected override bool IsIPV4 => false;
             protected override string INetFamily => IPBanLinuxIPSetIPTables.INetFamilyIPV6;
             protected override string SetSuffix => ".set6";
             protected override string TableSuffix => ".tbl6";
             protected override string IpTablesProcess => ip6TablesProcess;
-
-            public IPBanLinuxFirewallIPTables6(string rulePrefix) : base(rulePrefix + "6_")
-            {
-
-            }
         }
 
         private readonly IPBanLinuxFirewallIPTables6 firewall6;
@@ -70,7 +65,7 @@ namespace DigitalRuby.IPBanCore
         public IPBanLinuxFirewallIPTables(string rulePrefix) : base(rulePrefix)
         {
             firewall6 = new IPBanLinuxFirewallIPTables6(RulePrefix);
-            
+
             // ensure legacy iptables are used
             RunProcess("update-alternatives", true, "--set iptables /usr/sbin/iptables-legacy");
             RunProcess("update-alternatives", true, "--set ip6tables /usr/sbin/ip6tables-legacy");
@@ -139,6 +134,12 @@ namespace DigitalRuby.IPBanCore
                 result = await firewall6.AllowIPAddresses(ruleNamePrefix, ipv6, allowedPorts, cancelToken);
             }
             return result;
+        }
+
+        /// <inheritdoc />
+        public override string GetPorts(string ruleName)
+        {
+            return base.GetPorts(ruleName) ?? firewall6.GetPorts(ruleName);
         }
 
         /// <inheritdoc />

@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,17 +32,13 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// This firewall implementation does nothing, so is great for performance testing
     /// </summary>
+    /// <remarks>
+    /// Constructor
+    /// </remarks>
+    /// <param name="rulePrefix">Rule prefix</param>
     [RequiredOperatingSystemAttribute(null, Priority = -999)] // low priority, basically any other firewall is preferred unless this one is explicitly specified in the config
-    public class IPBanNullFirewall : IPBanBaseFirewall
+    public class IPBanNullFirewall(string rulePrefix = null) : IPBanBaseFirewall(rulePrefix)
     {
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="rulePrefix">Rule prefix</param>
-        public IPBanNullFirewall(string rulePrefix = null) : base(rulePrefix)
-        {
-        }
-
         /// <inheritdoc />
         public override Task<bool> AllowIPAddresses(IEnumerable<string> ipAddresses, CancellationToken cancelToken = default)
         {
@@ -79,45 +76,41 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateAllowedIPAddresses()
+        public override IEnumerable<string> EnumerateAllowedIPAddresses(string ruleNamePrefix = null)
         {
-            return System.Array.Empty<string>();
+            return [];
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateBannedIPAddresses()
+        public override IEnumerable<string> EnumerateBannedIPAddresses(string ruleNamePrefix = null)
         {
-            return System.Array.Empty<string>();
+            return [];
         }
 
         /// <inheritdoc />
         public override IEnumerable<IPAddressRange> EnumerateIPAddresses(string ruleNamePrefix = null)
         {
-            return System.Array.Empty<IPAddressRange>();
+            return [];
+        }
+
+        /// <inheritdoc />
+        public override string GetPorts(string ruleName)
+        {
+            return null;
         }
 
         /// <inheritdoc />
         public override IEnumerable<string> GetRuleNames(string ruleNamePrefix = null)
         {
-            return System.Array.Empty<string>();
-        }
-
-        /// <inheritdoc />
-        public override bool IsIPAddressAllowed(string ipAddress, int port = -1)
-        {
-            return false;
-        }
-
-        /// <inheritdoc />
-        public override bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = -1)
-        {
-            ruleName = null;
-            return false;
+            return [];
         }
 
         /// <inheritdoc />
         public override void Truncate()
         {
         }
+
+        /// <inheritdoc />
+        public override IPBanMemoryFirewall Compile() => new();
     }
 }

@@ -106,11 +106,38 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Threshold,hours to examine common user names and ban attackers that meet a threshold within hours timespan. Set to empty to disable this feature..
+        ///   Looks up a localized string similar to Process Blank User Names.
+        /// </summary>
+        public static string AggregateBanUserNamesAllowBlank {
+            get {
+                return ResourceManager.GetString("AggregateBanUserNamesAllowBlank", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whether to include blank user names in aggregation for banning across your entire network..
+        /// </summary>
+        public static string AggregateBanUserNamesAllowBlankTooltip {
+            get {
+                return ResourceManager.GetString("AggregateBanUserNamesAllowBlankTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Count,hours to examine common user names and ban attackers that meet a count within hours timespan. Set to empty to disable this feature..
         /// </summary>
         public static string AggregateBanUserNamesTooltip {
             get {
                 return ResourceManager.GetString("AggregateBanUserNamesTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Alias.
+        /// </summary>
+        public static string Alias {
+            get {
+                return ResourceManager.GetString("Alias", resourceCulture);
             }
         }
         
@@ -268,6 +295,24 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Ban range threshold.
+        /// </summary>
+        public static string BanRangeThreshold {
+            get {
+                return ResourceManager.GetString("BanRangeThreshold", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Format: threshold,days,event_type. Threshold is number of failed logins or banned ips in a cidr mask before the entire cidr mask is banned for x days. For ipv4, /24 mask is used with 256 ips. For ipv6, /112 mask is used with 65536 ips. Days specifies duration to ban the range. Event type can be empty or b for banned ip adresses, or f for failed logins. Set to empty to disable this feature..
+        /// </summary>
+        public static string BanRangeThresholdTooltip {
+            get {
+                return ResourceManager.GetString("BanRangeThresholdTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Ban Time.
         /// </summary>
         public static string BanTime {
@@ -340,6 +385,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Check Last Whitelist Access.
+        /// </summary>
+        public static string CheckLastWhitelistAccess {
+            get {
+                return ResourceManager.GetString("CheckLastWhitelistAccess", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to City.
         /// </summary>
         public static string City {
@@ -394,6 +448,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Client.
+        /// </summary>
+        public static string Client {
+            get {
+                return ResourceManager.GetString("Client", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Client Configuration.
         /// </summary>
         public static string ClientConfiguration {
@@ -435,6 +498,24 @@ namespace DigitalRuby.IPBanCore {
         public static string Cloudflare_ZoneIds_Description {
             get {
                 return ResourceManager.GetString("Cloudflare_ZoneIds_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Concurrent Remote IP Ban.
+        /// </summary>
+        public static string ConcurrentRemoteIPBan {
+            get {
+                return ResourceManager.GetString("ConcurrentRemoteIPBan", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Count,seconds for banning connected remote ips that meet a concurrent count for a specified number of seconds. Set to empty to disable this feature..
+        /// </summary>
+        public static string ConcurrentRemoteIPBanTooltip {
+            get {
+                return ResourceManager.GetString("ConcurrentRemoteIPBanTooltip", resourceCulture);
             }
         }
         
@@ -583,6 +664,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Created At.
+        /// </summary>
+        public static string CreatedAt {
+            get {
+                return ResourceManager.GetString("CreatedAt", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Create Whitelist Firewall Rule.
         /// </summary>
         public static string CreateWhitelistFirewallRule {
@@ -606,6 +696,24 @@ namespace DigitalRuby.IPBanCore {
         public static string CredentialPropagation {
             get {
                 return ResourceManager.GetString("CredentialPropagation", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Critical.
+        /// </summary>
+        public static string Critical {
+            get {
+                return ResourceManager.GetString("Critical", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Cut Off.
+        /// </summary>
+        public static string Cutoff {
+            get {
+                return ResourceManager.GetString("Cutoff", resourceCulture);
             }
         }
         
@@ -646,6 +754,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Diagnostics.
+        /// </summary>
+        public static string Diagnostics {
+            get {
+                return ResourceManager.GetString("Diagnostics", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Direction.
         /// </summary>
         public static string Direction {
@@ -669,6 +786,24 @@ namespace DigitalRuby.IPBanCore {
         public static string Docs {
             get {
                 return ResourceManager.GetString("Docs", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Duration.
+        /// </summary>
+        public static string Duration {
+            get {
+                return ResourceManager.GetString("Duration", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Duration (DD:HH:MM:SS).
+        /// </summary>
+        public static string Duration_Tooltip {
+            get {
+                return ResourceManager.GetString("Duration_Tooltip", resourceCulture);
             }
         }
         
@@ -1015,7 +1150,10 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Extra firewall rules, one per line. Great way to persist firewall rules. Format is &apos;rule-name;allow or block;ip list (comma spearated);allowed port list (comma separated);platform regex&apos;. The name should be kept to 16 or less chars..
+        ///   Looks up a localized string similar to Extra firewall rules, one per line. Great way to persist firewall rules. Format is &apos;rule-name;allow or block;ip list (comma spearated);port list (comma separated);platform regex&apos;. The name should be kept to 16 or less chars.
+        ///
+        ///For allow rules, port list is allowed ports, so if you wanted to allow port 3389, just enter 3389.
+        ///For block rules, port list is ignored ports, so if you wanted to block port 3389, you&apos;d enter 0-3388,3390-65535..
         /// </summary>
         public static string FirewallRulesTooltip {
             get {
@@ -1042,7 +1180,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Config entry for firewall uri rules, one per line. Format is RulePrefix,Interval(DD:HH:MM:SS),Uri[NEWLINE]..
+        ///   Looks up a localized string similar to Config entry for firewall uri rules, one per line. Format is RulePrefix,Interval(DD:HH:MM:SS),Uri[NEWLINE]. $ts$ in uri&apos;s will be replaced with timestamp..
         /// </summary>
         public static string FirewallUriRulesTooltip {
             get {
@@ -1092,6 +1230,24 @@ namespace DigitalRuby.IPBanCore {
         public static string Id {
             get {
                 return ResourceManager.GetString("Id", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Import.
+        /// </summary>
+        public static string Import {
+            get {
+                return ResourceManager.GetString("Import", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Information.
+        /// </summary>
+        public static string Information {
+            get {
+                return ResourceManager.GetString("Information", resourceCulture);
             }
         }
         
@@ -1438,6 +1594,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Logs.
+        /// </summary>
+        public static string Logs {
+            get {
+                return ResourceManager.GetString("Logs", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Machine.
         /// </summary>
         public static string Machine {
@@ -1497,6 +1662,15 @@ namespace DigitalRuby.IPBanCore {
         public static string MaxActiveBlacklistedIPAddressesTooltip {
             get {
                 return ResourceManager.GetString("MaxActiveBlacklistedIPAddressesTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Max Count.
+        /// </summary>
+        public static string MaxCount {
+            get {
+                return ResourceManager.GetString("MaxCount", resourceCulture);
             }
         }
         
@@ -1645,7 +1819,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Url to POST a json request for notifications. The posted json contains Subject, Body and ToAddresses fields. Advanced: Use Uri=[uri] | Template=[template] | Format=[plain or markdown or slack, leave off for html]. Template will transform notification to your json. Example: { &quot;text&quot;:&quot;###SUBJECT###&quot;,&quot;blocks&quot;: [ { &quot;type&quot;: &quot;section&quot;, &quot;text&quot;: { &quot;type&quot;: &quot;mrkdwn&quot;, &quot;text&quot;: &quot;###SUBJECT###\n\n###BODY###&quot; } } ] } | format = slack | Uri = https://hooks.slack.com/services/KEY1/KEY2.
+        ///   Looks up a localized string similar to Url to POST a json request for notifications. The posted json contains Subject, Body and ToAddresses fields. Advanced: Use Uri=[uri] | Template=[template] | Format=[plain or markdown or slack, leave off for html]. Template will transform notification to your json. Example: { &quot;text&quot;:&quot;###SUBJECT###&quot;,&quot;blocks&quot;: [ { &quot;type&quot;: &quot;section&quot;, &quot;text&quot;: { &quot;type&quot;: &quot;mrkdwn&quot;, &quot;text&quot;: &quot;###SUBJECT###\n\n###BODY###\n\n###DATA###&quot; } } ] } | format = slack | Uri = https://hooks.slack.com/services/KEY1/KEY2.
         /// </summary>
         public static string NotificationWebHookTooltip {
             get {
@@ -1771,7 +1945,8 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Paths and masks to search, one per line. Glob syntax can be used for recursion, i.e. /logs/**/*.log.
+        ///   Looks up a localized string similar to Paths and masks to search, one per line. Glob syntax can be used for recursion, i.e. /logs/**/*.log
+        ///Can prefix with DB: to make it a db connection string instead of files, using format DB:TYPE:CONN_STRING. Type can be SqlServer, PostgreSql, MySql, or Sqlite. The regex in this case are sql queries, and must retrieve these columns: timestamp, ip_address, source, user_name. The query must also include a WHERE clause with ONE of the following: timestamp &gt; @Timestamp; timestamp &gt; @TimestampLocal; timestamp &gt; @T [rest of string was truncated]&quot;;.
         /// </summary>
         public static string PathAndMaskTooltip {
             get {
@@ -1852,7 +2027,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Process to Run on Ban.
+        ///   Looks up a localized string similar to Run on Ban.
         /// </summary>
         public static string ProcessToRunOnBan {
             get {
@@ -1870,7 +2045,25 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Process to Run on Unban.
+        ///   Looks up a localized string similar to Run on Successful Login.
+        /// </summary>
+        public static string ProcessToRunOnSuccessfulLogin {
+            get {
+                return ResourceManager.GetString("ProcessToRunOnSuccessfulLogin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Run an external process when a successful login occurs. Separate the process and any arguments with a pipe (|). ###IPADDRESS### will be replaced with the actual IP which was banned. The pipe is required. Example: c:\system\files\on_ip_banned.exe|###IPADDRESS### -q.
+        /// </summary>
+        public static string ProcessToRunOnSuccessfulLoginTooltip {
+            get {
+                return ResourceManager.GetString("ProcessToRunOnSuccessfulLoginTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Run on Unban.
         /// </summary>
         public static string ProcessToRunOnUnban {
             get {
@@ -1924,7 +2117,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Recent Banned IP IPAddresses.
+        ///   Looks up a localized string similar to Recent Banned IP Addresses.
         /// </summary>
         public static string RecentBannedIPAddresses {
             get {
@@ -1992,6 +2185,15 @@ namespace DigitalRuby.IPBanCore {
         public static string RecursiveTooltip {
             get {
                 return ResourceManager.GetString("RecursiveTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Refresh.
+        /// </summary>
+        public static string Refresh {
+            get {
+                return ResourceManager.GetString("Refresh", resourceCulture);
             }
         }
         
@@ -2073,6 +2275,15 @@ namespace DigitalRuby.IPBanCore {
         public static string ResetFailedLoginCountForUnbannedIPAddresses {
             get {
                 return ResourceManager.GetString("ResetFailedLoginCountForUnbannedIPAddresses", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Reset License Keys.
+        /// </summary>
+        public static string ResetLicenseKeys {
+            get {
+                return ResourceManager.GetString("ResetLicenseKeys", resourceCulture);
             }
         }
         
@@ -2536,6 +2747,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Updated At.
+        /// </summary>
+        public static string UpdatedAt {
+            get {
+                return ResourceManager.GetString("UpdatedAt", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Url.
         /// </summary>
         public static string Url {
@@ -2680,11 +2900,29 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Warning.
+        /// </summary>
+        public static string Warning {
+            get {
+                return ResourceManager.GetString("Warning", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Welcome, {0}.
         /// </summary>
         public static string Welcome {
             get {
                 return ResourceManager.GetString("Welcome", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whitelister.
+        /// </summary>
+        public static string Whitelister {
+            get {
+                return ResourceManager.GetString("Whitelister", resourceCulture);
             }
         }
         

@@ -25,7 +25,7 @@ SOFTWARE.
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
+using System.Xml;
 
 namespace DigitalRuby.IPBanCore
 {
@@ -37,6 +37,7 @@ namespace DigitalRuby.IPBanCore
     public static class IPBanLinuxIPSetFirewallD
     {
         private static readonly string setsFolder;
+        private static readonly string zoneFile;
 
         /// <summary>
         /// INetFamily for ipv4
@@ -73,11 +74,13 @@ namespace DigitalRuby.IPBanCore
             if (OSUtility.IsLinux)
             {
                 setsFolder = "/etc/firewalld/ipsets";
+                zoneFile = "/etc/firewalld/zones/public.xml";
             }
             else
             {
                 // windows virtual layer
                 setsFolder = Path.Combine(System.AppContext.BaseDirectory, "firewalld", "override", "ipsets");
+                zoneFile = Path.Combine(System.AppContext.BaseDirectory, "firewalld", "override", "zones", "public.xml");
                 Directory.CreateDirectory(setsFolder);
             }
         }
@@ -116,12 +119,10 @@ namespace DigitalRuby.IPBanCore
         /// <param name="hashType">Hash type</param>
         /// <param name="inetType">Inet type</param>
         /// <param name="entries">Entries</param>
-        /// <param name="cancelToken">Cancel token</param>
         /// <returns>True if success, false if error</returns>
-        public static bool UpsertSet(string setName, string hashType, string inetType,
-            IEnumerable<IPAddressRange> entries, CancellationToken cancelToken)
+        public static bool UpsertSet(string setName, string hashType, string inetType, IEnumerable<IPAddressRange> entries)
         {
-            WriteSet(setName, hashType, inetType, entries.Select(e => e.ToString()), cancelToken);
+            WriteSet(setName, hashType, inetType, entries.Select(e => e.ToString()));
             return true;
         }
 
@@ -132,10 +133,8 @@ namespace DigitalRuby.IPBanCore
         /// <param name="hashType">Hash type</param>
         /// <param name="inetType">Inet type</param>
         /// <param name="entries">Entries</param>
-        /// <param name="cancelToken">Cancel token</param>
         /// <returns>True if success, false if error</returns>
-        public static bool UpsertSetDelta(string setName, string hashType, string inetType,
-            IEnumerable<IPBanFirewallIPAddressDelta> entries, CancellationToken cancelToken)
+        public static bool UpsertSetDelta(string setName, string hashType, string inetType, IEnumerable<IPBanFirewallIPAddressDelta> entries)
         {
             var existingEntries = ReadSet(setName);
             foreach (var entry in entries)
@@ -149,7 +148,7 @@ namespace DigitalRuby.IPBanCore
                     existingEntries.Remove(entry.IPAddress);
                 }
             }
-            WriteSet(setName, hashType, inetType, existingEntries, cancelToken);
+            WriteSet(setName, hashType, inetType, existingEntries);
             return true;
         }
 
@@ -160,7 +159,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Set names</returns>
         public static IReadOnlyCollection<string> GetSetNames(string setPrefix)
         {
-            HashSet<string> sets = new();
+            HashSet<string> sets = [];
             var setFiles = Directory.GetFiles(setsFolder);
             foreach (var file in setFiles)
             {
@@ -180,7 +179,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Entries</returns>
         public static ICollection<string> ReadSet(string setName)
         {
-            HashSet<string> entries = new();
+            HashSet<string> entries = [];
             var setFileName = Path.Combine(setsFolder, setName + ".xml");
             if (File.Exists(setFileName))
             {
@@ -196,6 +195,74 @@ namespace DigitalRuby.IPBanCore
                 }
             }
             return entries;
+        }
+
+        /// <summary>
+        /// Get the entries in a set
+        /// </summary>
+        /// <param name="setName">Set name</param>
+        /// <returns>Entries</returns>
+        public static IReadOnlyCollection<IPAddressRange> ReadSetRanges(string setName)
+        {
+            HashSet<IPAddressRange> entries = [];
+            var setFileName = Path.Combine(setsFolder, setName + ".xml");
+            if (File.Exists(setFileName))
+            {
+                using var xmlReader = System.Xml.XmlReader.Create(setFileName);
+                while (xmlReader.Read())
+                {
+                    if (xmlReader.NodeType == System.Xml.XmlNodeType.Element &&
+                        xmlReader.Name == "entry")
+                    {
+                        var entry = xmlReader.ReadElementContentAsString();
+                        entries.Add(entry);
+                    }
+                }
+            }
+            return entries;
+        }
+
+        /// <summary>
+        /// Read set ports
+        /// </summary>
+        /// <param name="setName">Set name</param>
+        /// <returns>Port ranges</returns>
+        public static IReadOnlyCollection<PortRange> ReadSetPorts(string setName)
+        {
+            if (!File.Exists(zoneFile))
+            {
+                return [];
+            }
+
+            XmlDocument doc = new();
+            doc.Load(zoneFile);
+
+            // example allow:
+            // <rule family="ipv6" priority="-20">
+            //   <source ipset="IPBan_WhitelistUrlG_R_6" />
+            //   <port port="0-65535" protocol="tcp" />
+            //   <accept />
+            // </rule>
+
+            // example drop:
+            // <rule family="ipv6" priority="-10">
+            //   <source ipset="IPBan_AsnBlock_S_6" />
+            //   <port port="0-65535" protocol="tcp" />
+            //   <drop />
+            // </rule>
+
+            // find the rule wit source ipset of name and grab the port port attribute
+            foreach (XmlNode node in doc.SelectNodes($"//rule/source[@ipset='{setName}']/../port"))
+            {
+                if (node.Attributes["port"] is not null)
+                {
+                    var ports = node.Attributes["port"].Value ?? string.Empty;
+                    return ports.Split(',').Select(p => PortRange.Parse(p)).ToArray();
+                }
+            }
+
+
+            return [];
         }
 
         /// <summary>
@@ -254,8 +321,7 @@ namespace DigitalRuby.IPBanCore
             return (hashType, family, hashSize, maxElem);
         }
 
-        private static void WriteSet(string setName, string hashType, string inetFamily, IEnumerable<string> entries,
-            CancellationToken cancelToken)
+        private static void WriteSet(string setName, string hashType, string inetFamily, IEnumerable<string> entries)
         {
             // first write the set
             var fileName = Path.Combine(setsFolder, setName + ".xml");
@@ -265,11 +331,55 @@ namespace DigitalRuby.IPBanCore
             writer.WriteLine($"<option name=\"family\" value=\"{inetFamily}\" />");
             writer.WriteLine($"<option name=\"hashsize\" value=\"{IPBanLinuxIPSetIPTables.HashSize}\" />");
             writer.WriteLine($"<option name=\"maxelem\" value=\"{IPBanLinuxIPSetIPTables.MaxCount}\" />");
-            foreach (var entry in entries)
+            foreach (var range in EnumerateSortedIPAddressRanges(EnumerateIPAddressRanges(entries)))
             {
-                writer.WriteLine($"<entry>{entry}</entry>");
+                writer.WriteLine($"<entry>{range}</entry>");
             }
             writer.WriteLine("</ipset>");
+        }
+
+        private static IEnumerable<IPAddressRange> EnumerateIPAddressRanges(IEnumerable<string> entries)
+        {
+            foreach (var entry in entries)
+            {
+                if (IPAddressRange.TryParse(entry, out var range))
+                {
+                    yield return range;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Enumerate sorted ip addresses and break non cidr ranges into individual entries.
+        /// </summary>
+        /// <param name="ranges">Ranges</param>
+        /// <returns>Enumerated ranges</returns>
+        public static IEnumerable<IPAddressRange> EnumerateSortedIPAddressRanges(IEnumerable<IPAddressRange> ranges)
+        {
+            const int maxIPExtractedFromRange = 256;
+
+            foreach (var range in ranges.OrderBy(r => r))
+            {
+                if (!range.Single && range.GetPrefixLength(false) < 0)
+                {
+                    // attempt to write the ips in this range if the count is low enough
+                    if (range.GetCount() <= maxIPExtractedFromRange)
+                    {
+                        foreach (System.Net.IPAddress ip in range)
+                        {
+                            yield return new(ip);
+                        }
+                    }
+                    else
+                    {
+                        Logger.Debug("Skipped writing non-cidr range {0} because of too many ips", range);
+                    }
+                }
+                else
+                {
+                    yield return range;
+                }
+            }
         }
     }
 }

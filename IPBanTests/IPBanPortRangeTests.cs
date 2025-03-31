@@ -25,6 +25,9 @@ SOFTWARE.
 using DigitalRuby.IPBanCore;
 
 using NUnit.Framework;
+using NUnit.Framework.Legacy;
+
+using System.Linq;
 
 namespace DigitalRuby.IPBanTests
 {
@@ -34,13 +37,13 @@ namespace DigitalRuby.IPBanTests
         private static void TestPortRangeAllow(string expected, string message, params PortRange[] ranges)
         {
             string actual = IPBanFirewallUtility.GetPortRangeStringAllow(ranges);
-            Assert.AreEqual(expected, actual, message ?? "Invalid port string");
+            ClassicAssert.AreEqual(expected, actual, message ?? "Invalid port string");
         }
 
         private static void TestPortRangeBlockExcept(string expected, string message, params PortRange[] ranges)
         {
             string actual = IPBanFirewallUtility.GetPortRangeStringBlock(ranges);
-            Assert.AreEqual(expected, actual, message ?? "Invalid port string");
+            ClassicAssert.AreEqual(expected, actual, message ?? "Invalid port string");
         }
 
         [Test]
@@ -62,6 +65,26 @@ namespace DigitalRuby.IPBanTests
             TestPortRangeBlockExcept("0-24,1000-1023,1051-65535", null, "25-999", "1024-1050");
             TestPortRangeBlockExcept("0,65535", null, "1-65534");
             TestPortRangeBlockExcept(null, null, "0-65535");
+        }
+
+        [Test]
+        public void TestPort25()
+        {
+            var value = IPBanFirewallUtility.InvertPortRanges([new PortRange(25)]);
+            ClassicAssert.That(value, Has.Count.EqualTo(2));
+            ClassicAssert.That(value, Has.Exactly(1).Matches<PortRange>(x => x.MinPort == 0 && x.MaxPort == 24));
+            ClassicAssert.That(value, Has.Exactly(1).Matches<PortRange>(x => x.MinPort == 26 && x.MaxPort == 65535));
+            var again = IPBanFirewallUtility.InvertPortRanges(value);
+            ClassicAssert.That(again, Has.Count.EqualTo(1));
+            ClassicAssert.That(again, Has.Exactly(1).Matches<PortRange>(x => x.MinPort == 25 && x.MinPort == 25));
+        }
+
+        [TestCase("80,443,5000-5050", "80,443,5000-5050")]
+        [TestCase("a", "")]
+        public void TestParsePortRanges(string ranges, string expected)
+        {
+            var parsedRanges = PortRange.ParseRanges(ranges);
+            Assert.That(string.Join(',', parsedRanges.Select(r => r.ToString())), Is.EqualTo(expected));
         }
     }
 }

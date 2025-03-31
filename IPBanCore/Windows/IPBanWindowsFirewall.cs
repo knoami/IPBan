@@ -31,6 +31,7 @@ using DigitalRuby.IPBanCore.Windows.COM;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -47,26 +48,27 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Helper class for Windows firewall and banning ip addresses.
     /// </summary>
-    [RequiredOperatingSystem(OSUtility.Windows)]
+    [RequiredOperatingSystem(OSUtility.Windows, PriorityEnvironmentVariable = "IPBanPro_WindowsFirewallPriority")]
     [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All)]
     public class IPBanWindowsFirewall : IPBanBaseFirewall
     {
-        // DO NOT CHANGE THESE CONST AND READONLY FIELDS!
-
         /// <summary>
         /// Max number of ip addresses per rule
         /// </summary>
         public const int MaxIpAddressesPerRule = 1000;
 
+        // DO NOT CHANGE THESE CONST AND READONLY FIELDS! ***********************************************************************************
         private const string clsidFwPolicy2 = "{E2B3C97F-6AE1-41AC-817A-F6F92166D7DD}";
         private const string clsidFwRule = "{2C5BC43E-3369-4C33-AB0C-BE9469677AF4}";
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "jjxtra")]
         private static readonly INetFwPolicy2 policy = Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid(clsidFwPolicy2))) as INetFwPolicy2;
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "jjxtra")]
         private static readonly INetFwMgr manager = (INetFwMgr)Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwMgr"));
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "jjxtra")]
         private static readonly Type ruleType = Type.GetTypeFromCLSID(new Guid(clsidFwRule));
-        private static readonly char[] firewallEntryDelimiters = new char[] { '/', '-' };
+        private static readonly char[] firewallEntryDelimiters = ['/', '-'];
+        // **********************************************************************************************************************************
 
         private static string CreateRuleStringForIPAddresses(IReadOnlyList<string> ipAddresses, int index, int count)
         {
@@ -234,11 +236,8 @@ namespace DigitalRuby.IPBanCore
                         {
                             // not exist, that is OK
                         }
-                        if (rule is null)
-                        {
-                            // migrate IPBan_0 style to IPBan_Block_0 style
-                            rule = policy.Rules.Item("IPBan_" + i.ToString(CultureInfo.InvariantCulture));
-                        }
+                        // migrate IPBan_0 style to IPBan_Block_0 style
+                        rule ??= policy.Rules.Item("IPBan_" + i.ToString(CultureInfo.InvariantCulture));
                         rule.Name = BlockRulePrefix + i.ToString(CultureInfo.InvariantCulture);
                     }
                     catch
@@ -292,17 +291,17 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private static IEnumerable<INetFwRule> EnumerateRulesMatchingPrefix(string ruleNamePrefix)
+        private static List<INetFwRule> EnumerateRulesMatchingPrefix(string ruleNamePrefix)
         {
             // powershell example
             // (New-Object -ComObject HNetCfg.FwPolicy2).rules | Where-Object { $_.Name -match '^prefix' } | ForEach-Object { Write-Output "$($_.Name)" }
             // TODO: Revisit COM interface in .NET core 3.0
-            List<INetFwRule> rules = new();
+            List<INetFwRule> rules = [];
             var e = policy.Rules.GetEnumeratorVariant();
             object[] results = new object[64];
             int count;
             bool matchAll = (string.IsNullOrWhiteSpace(ruleNamePrefix) || ruleNamePrefix == "*");
-            IntPtr bufferLengthPointer = Marshal.AllocCoTaskMem(Marshal.SizeOf(typeof(int)));
+            IntPtr bufferLengthPointer = Marshal.AllocCoTaskMem(Marshal.SizeOf<int>());
             try
             {
                 do
@@ -395,13 +394,10 @@ namespace DigitalRuby.IPBanCore
 
             try
             {
-                List<string> ipAddressesList = new();
+                List<string> ipAddressesList = [];
                 foreach (string ipAddress in ipAddresses)
                 {
-                    if (cancelToken.IsCancellationRequested)
-                    {
-                        throw new OperationCanceledException(cancelToken);
-                    }
+                    cancelToken.ThrowIfCancellationRequested();
                     ipAddressesList.Add(ipAddress);
                     if (ipAddressesList.Count == MaxIpAddressesPerRule)
                     {
@@ -417,10 +413,7 @@ namespace DigitalRuby.IPBanCore
                         ipAddressesList.Clear();
                     }
                 }
-                if (cancelToken.IsCancellationRequested)
-                {
-                    throw new OperationCanceledException(cancelToken);
-                }
+                cancelToken.ThrowIfCancellationRequested();
                 if (ipAddressesList.Count != 0)
                 {
                     if (block)
@@ -497,6 +490,59 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
+        public override IPBanMemoryFirewall Compile()
+        {
+            IPBanMemoryFirewall firewall = new(RulePrefix);
+            try
+            {
+                lock (policy)
+                {
+                    foreach (INetFwRule rule in policy.Rules)
+                    {
+                        try
+                        {
+                            if (rule is not null &&
+                                !string.IsNullOrWhiteSpace(rule.Name) &&
+                                !string.IsNullOrWhiteSpace(rule.RemoteAddresses) &&
+                                rule.Name.StartsWith(RulePrefix, StringComparison.OrdinalIgnoreCase))
+                            {
+                                var ips = rule.RemoteAddresses.Split(',').Select(r => IPAddressRange.Parse(r));
+                                var ports = (rule.LocalPorts ?? string.Empty).Split(',').Select(p => PortRange.Parse(p));
+                                if (rule.Action == NetFwAction.Allow)
+                                {
+                                    firewall.AllowIPAddresses(rule.Name, ips, ports);
+                                }
+                                else
+                                {
+                                    // firewall methods for now, always take allow ports, so we need to invert block ports to allow
+                                    // the firewall block method will invert them back to block ports
+                                    var invertedPorts = IPBanFirewallUtility.InvertPortRanges(ports);
+                                    firewall.BlockIPAddresses(rule.Name, ips, invertedPorts);
+                                }
+                            }
+                        }
+                        catch (Exception inner)
+                        {
+                            // in case COM api throws
+                            if (inner is not OperationCanceledException)
+                            {
+                                Logger.Error(inner);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (ex is not OperationCanceledException)
+                {
+                    Logger.Error(ex);
+                }
+            }
+            return firewall;
+        }
+
+        /// <inheritdoc />
         public override Task<bool> BlockIPAddresses(string ruleNamePrefix, IEnumerable<string> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
             string prefix = (string.IsNullOrWhiteSpace(ruleNamePrefix) ? BlockRulePrefix : RulePrefix + ruleNamePrefix).TrimEnd('_') + "_";
@@ -530,13 +576,13 @@ namespace DigitalRuby.IPBanCore
 
             string prefix = (string.IsNullOrWhiteSpace(ruleNamePrefix) ? BlockRulePrefix : RulePrefix + ruleNamePrefix).TrimEnd('_') + "_";
             int ruleIndex;
-            INetFwRule[] rules = EnumerateRulesMatchingPrefix(prefix).ToArray();
-            List<HashSet<string>> remoteIPAddresses = new();
-            List<bool> ruleChanges = new();
+            INetFwRule[] rules = [.. EnumerateRulesMatchingPrefix(prefix)];
+            List<HashSet<string>> remoteIPAddresses = [];
+            List<bool> ruleChanges = [];
             for (int i = 0; i < rules.Length; i++)
             {
                 string[] ipList = rules[i].RemoteAddresses.Split(',');
-                HashSet<string> ipSet = new();
+                HashSet<string> ipSet = [];
                 foreach (string ip in ipList)
                 {
                     // trim out submask
@@ -650,93 +696,6 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = -1)
-        {
-            ruleName = null;
-
-            try
-            {
-                lock (policy)
-                {
-                    for (int i = 0; ; i += MaxIpAddressesPerRule)
-                    {
-                        string firewallRuleName = BlockRulePrefix + i.ToString(CultureInfo.InvariantCulture);
-                        try
-                        {
-                            INetFwRule rule = policy.Rules.Item(firewallRuleName);
-                            if (rule is null)
-                            {
-                                // no more rules to check
-                                break;
-                            }
-                            else
-                            {
-                                HashSet<string> set = new(rule.RemoteAddresses.Split(',').Select(i2 => IPAddressRange.Parse(i2).Begin.ToString()));
-                                if (set.Contains(ipAddress))
-                                {
-                                    ruleName = firewallRuleName;
-                                    return true;
-                                }
-                            }
-                        }
-                        catch
-                        {
-                            // no more rules to check
-                            break;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex is not OperationCanceledException)
-                {
-                    Logger.Error(ex);
-                }
-            }
-            return false;
-        }
-
-        /// <inheritdoc />
-        public override bool IsIPAddressAllowed(string ipAddress, int port = -1)
-        {
-            try
-            {
-                lock (policy)
-                {
-                    for (int i = 0; ; i += MaxIpAddressesPerRule)
-                    {
-                        string ruleName = AllowRulePrefix + i.ToString(CultureInfo.InvariantCulture);
-                        try
-                        {
-                            INetFwRule rule = policy.Rules.Item(ruleName);
-                            if (rule is null)
-                            {
-                                break;
-                            }
-                            else if (rule.RemoteAddresses.Contains(ipAddress))
-                            {
-                                return true;
-                            }
-                        }
-                        catch
-                        {
-                            // OK, rule does not exist
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex is not OperationCanceledException)
-                {
-                    Logger.Error(ex);
-                }
-            }
-            return false;
-        }
-
-        /// <inheritdoc />
         public override IEnumerable<string> GetRuleNames(string ruleNamePrefix = null)
         {
             string prefix = (string.IsNullOrWhiteSpace(ruleNamePrefix) ? RulePrefix : RulePrefix + ruleNamePrefix);
@@ -759,14 +718,14 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateBannedIPAddresses()
+        public override IEnumerable<string> EnumerateBannedIPAddresses(string ruleNamePrefix = null)
         {
             int i = 0;
             INetFwRule rule;
-
+            string prefix = (ruleNamePrefix is null ? BlockRulePrefix : ruleNamePrefix);
             while (true)
             {
-                string ruleName = BlockRulePrefix + i.ToString(CultureInfo.InvariantCulture);
+                string ruleName = prefix + i.ToString(CultureInfo.InvariantCulture);
                 try
                 {
                     rule = policy.Rules.Item(ruleName);
@@ -797,14 +756,16 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <inheritdoc />
-        public override IEnumerable<string> EnumerateAllowedIPAddresses()
+        public override IEnumerable<string> EnumerateAllowedIPAddresses(string ruleNamePrefix = null)
         {
             INetFwRule rule;
+            string prefix = (ruleNamePrefix is null ? AllowRulePrefix : ruleNamePrefix);
+
             for (int i = 0; ; i += MaxIpAddressesPerRule)
             {
                 try
                 {
-                    rule = policy.Rules.Item(AllowRulePrefix + i.ToString(CultureInfo.InvariantCulture));
+                    rule = policy.Rules.Item(prefix + i.ToString(CultureInfo.InvariantCulture));
                     if (rule is null)
                     {
                         break;
@@ -850,6 +811,25 @@ namespace DigitalRuby.IPBanCore
                     }
                 }
             }
+        }
+
+        /// <inheritdoc />
+        public override string GetPorts(string ruleName)
+        {
+            try
+            {
+                lock (policy)
+                {
+                    INetFwRule rule = policy.Rules.Item(ruleName);
+                    return rule.LocalPorts ?? string.Empty;
+                }
+            }
+            catch
+            {
+                // not exist, no way to determine this without throwing
+            }
+            return null;
+
         }
 
         /// <inheritdoc />

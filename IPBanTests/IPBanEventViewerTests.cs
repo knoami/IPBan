@@ -25,6 +25,7 @@ SOFTWARE.
 using DigitalRuby.IPBanCore;
 
 using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 using System;
 using System.Collections.Generic;
@@ -39,7 +40,7 @@ namespace DigitalRuby.IPBanTests
     [TestFixture]
     public class IPBanEventViewerTests : IIPBanDelegate
     {
-        private readonly Dictionary<string, int> successEvents = new();
+        private readonly Dictionary<string, int> successEvents = [];
 
         private IPBanService service;
 
@@ -78,16 +79,23 @@ namespace DigitalRuby.IPBanTests
                 {
                     throw new System.IO.InvalidDataException("Expected 5 lines of event viewer test data");
                 }
-                Xml = lines[0].Trim();
-                IPAddress = lines[1].Trim();
-                UserName = lines[2].Trim();
+                Xml = CleanLine(lines[0]);
+                IPAddress = CleanLine(lines[1]);
+                UserName = CleanLine(lines[2]);
                 if (UserName == "[nouser]")
                 {
                     UserName = string.Empty;
                 }
-                Source = lines[3].Trim();
-                Enum.TryParse<IPAddressEventType>(lines[4].Trim(), true, out var eventType);
-                EventType = eventType;
+                Source = CleanLine(lines[3]);
+                var eventTypeString = CleanLine(lines[4]);
+                if (Enum.TryParse<IPAddressEventType>(eventTypeString, true, out var eventType))
+                {
+                    EventType = eventType;
+                }
+                else
+                {
+                    EventType = (IPAddressEventType)int.Parse(eventTypeString);
+                }
             }
 
             public override string ToString()
@@ -100,49 +108,104 @@ namespace DigitalRuby.IPBanTests
             public string UserName { get; init; }
             public string Source { get; init; }
             public IPAddressEventType EventType { get; init; }
+
+            private static string CleanLine(string line)
+            {
+                int pos = line.IndexOf('#');
+                if (pos >= 0)
+                {
+                    line = line[..pos];
+                }
+                return line.Trim();
+            }
         }
 
-        private static IReadOnlyCollection<EventViewerTest> ReadEventViewerTests()
+        private static IReadOnlyCollection<EventViewerTest> ReadEventViewerTests
         {
-            string[] lines = File.ReadAllLines("TestData/EventViewer/EventViewerTests.txt")
-                .Select(l => l.Trim())
-                .Where(l => !l.StartsWith('#'))
-                .ToArray();
-            List<EventViewerTest> tests = new(lines.Length / 6);
-
-            for (int i = 0; i < lines.Length; i += 6)
+            get
             {
-                tests.Add(new(lines.Skip(i).Take(5).ToArray()));
-            }
+                string[] lines = File.ReadAllLines("TestData/EventViewer/EventViewerTests.txt")
+                    .Select(l => l.Trim())
+                    .Where(l => !l.StartsWith('#'))
+                    .ToArray();
+                List<EventViewerTest> tests = new(lines.Length / 6);
 
-            return tests;
+                for (int i = 0; i < lines.Length; i += 6)
+                {
+                    tests.Add(new(lines.Skip(i).Take(5).ToArray()));
+                }
+
+                return tests;
+            }
         }
 
         [Test]
-        public void TestEventViewer()
+        public async Task TestEventViewer()
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 return;
             }
 
-            IReadOnlyCollection<EventViewerTest> tests = ReadEventViewerTests();
+            IReadOnlyCollection<EventViewerTest> tests = ReadEventViewerTests;
+
+            // avert thine eyes
+            const string eventViewerHackyXml = @"<Source>RDP</Source><Keywords>0x8020000000000000</Keywords><Path>Security</Path><Expressions><Expression><XPath>//EventID</XPath><Regex>^4624$</Regex></Expression><Expression><XPath>//Data[@Name='ProcessName' or @Name='LogonProcessName']</XPath><Regex>ntlmssp</Regex></Expression><Expression><XPath>//Data[@Name='IpAddress' or @Name='Workstation' or @Name='SourceAddress']</XPath><Regex><![CDATA[(?<ipaddress>.+)]]></Regex></Expression></Expressions>";
 
             for (int i = 0; i < 5; i++)
             {
                 foreach (var test in tests)
                 {
-                    IPAddressLogEvent result = service.EventViewer.ProcessEventViewerXml(test.Xml);
-                    string foundIp = (result is null ? "x" : result.IPAddress ?? string.Empty);
-                    string foundUser = (result is null ? "x" : result.UserName ?? string.Empty);
-                    string foundSource = (result is null ? "x" : result.Source ?? string.Empty);
-                    IPAddressEventType foundType = (result is null ? IPAddressEventType.None : result.Type);
-                    Assert.AreEqual(test.IPAddress, foundIp);
-                    Assert.AreEqual(test.UserName, foundUser);
-                    Assert.AreEqual(test.Source, foundSource);
-                    Assert.AreEqual(test.EventType, foundType);
+                    if ((int)test.EventType == 9999)
+                    {
+                        // add a failed login matching a succesful login - we should get both events
+                        var newConfig = IPBanConfig.ChangeConfigEventViewer(service.Config.Xml, true, false, [eventViewerHackyXml]);
+                        await service.ConfigReaderWriter.WriteConfigAsync(newConfig);
+                        await service.RunCycleAsync();
+                    }
+                    var results = service.EventViewer.ProcessEventViewerXml(test.Xml).ToArray();
+                    var resultIndex = 0;
+                    foreach (var result in results)
+                    {
+                        string foundIp = (result is null ? "x" : result.IPAddress ?? string.Empty);
+                        string foundUser = (result is null ? "x" : result.UserName ?? string.Empty);
+                        string foundSource = (result is null ? "x" : result.Source ?? string.Empty);
+                        IPAddressEventType foundType = (result is null ? IPAddressEventType.None : result.Type);
+                        ClassicAssert.AreEqual(test.IPAddress, foundIp);
+                        ClassicAssert.AreEqual(test.UserName, foundUser);
+                        ClassicAssert.AreEqual(test.Source, foundSource);
+                        if ((int)test.EventType == 9999)
+                        {
+                            if (resultIndex == 0)
+                            {
+                                // failed login
+                                ClassicAssert.AreEqual(IPAddressEventType.FailedLogin, foundType);
+                            }
+                            else
+                            {
+                                // successful login
+                                ClassicAssert.AreEqual(IPAddressEventType.SuccessfulLogin, foundType);
+                            }
+                        }
+                        else
+                        {
+                            ClassicAssert.AreEqual(test.EventType, foundType);
+                        }
+                        resultIndex++;
+                    }
+                    if (resultIndex == 0 && test.EventType != IPAddressEventType.None)
+                    {
+                        ClassicAssert.Fail("No results found for test: " + test.Xml);
+                    }
+                    if ((int)test.EventType == 9999)
+                    {
+                        // return config to original state
+                        var newConfig = IPBanConfig.ChangeConfigEventViewer(service.Config.Xml, true, true, [eventViewerHackyXml]);
+                        await service.ConfigReaderWriter.WriteConfigAsync(newConfig);
+                        await service.RunCycleAsync();
+                    }
                 }
-                service.RunCycleAsync().Sync();
+                await service.RunCycleAsync();
 
                 // pretend enough time has passed to not batch the login attempts
                 IPBanService.UtcNow += TimeSpan.FromSeconds(10.0);
@@ -158,17 +221,17 @@ namespace DigitalRuby.IPBanTests
             Array.Sort(expectedBlockedIPAddresses);
             if (expectedBlockedIPAddresses.Length != actualBlockedIPAddresses.Length)
             {
-                Assert.Fail("Failed to block ips: " + string.Join(", ", expectedBlockedIPAddresses.Except(actualBlockedIPAddresses)));
+                ClassicAssert.Fail("Failed to block ips: " + string.Join(", ", expectedBlockedIPAddresses.Except(actualBlockedIPAddresses)));
             }
-            Assert.AreEqual(expectedBlockedIPAddresses, actualBlockedIPAddresses);
+            ClassicAssert.AreEqual(expectedBlockedIPAddresses, actualBlockedIPAddresses);
 
-            int expectedSuccessCount = tests.Where(t => t.EventType == IPAddressEventType.SuccessfulLogin).Count();
-            Assert.AreEqual(expectedSuccessCount, successEvents.Count);
+            int expectedSuccessCount = tests.Where(t => t.EventType == IPAddressEventType.SuccessfulLogin || t.EventType == (IPAddressEventType)9999).Count();
+            ClassicAssert.AreEqual(expectedSuccessCount, successEvents.Count);
 
             foreach (var test in tests.Where(t => t.EventType == IPAddressEventType.SuccessfulLogin))
             {
                 var shortString = $"{test.IPAddress}_{test.Source}_{test.UserName}";
-                Assert.AreEqual(5, successEvents[shortString]);
+                ClassicAssert.AreEqual(5, successEvents[shortString]);
             }
         }
 

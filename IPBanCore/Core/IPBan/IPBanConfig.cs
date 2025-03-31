@@ -29,11 +29,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Serialization;
@@ -104,16 +101,17 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public const string DefaultFileName = "ipban.config";
 
-        private static readonly TimeSpan[] emptyTimeSpanArray = new TimeSpan[] { TimeSpan.Zero };
-        private static readonly IPBanLogFileToParse[] emptyLogFilesToParseArray = Array.Empty<IPBanLogFileToParse>();
-        private static readonly TimeSpan maxBanTimeSpan = TimeSpan.FromDays(90.0);
+        private static readonly TimeSpan[] emptyTimeSpanArray = [TimeSpan.Zero];
+        private static readonly IPBanLogFileToParse[] emptyLogFilesToParseArray = [];
+        private static readonly TimeSpan maxBanTimeSpan = TimeSpan.FromDays(9999.0);
 
         private readonly Dictionary<string, string> appSettings = new(StringComparer.OrdinalIgnoreCase);
         private readonly IPBanLogFileToParse[] logFiles;
-        private readonly TimeSpan[] banTimes = new TimeSpan[] { TimeSpan.FromDays(1.0d) };
+        private readonly TimeSpan[] banTimes = [TimeSpan.FromDays(1.0d)];
         private readonly TimeSpan expireTime = TimeSpan.FromDays(1.0d);
         private readonly TimeSpan cycleTime = TimeSpan.FromMinutes(1.0d);
-        private readonly TimeSpan minimumTimeBetweenFailedLoginAttempts = TimeSpan.FromSeconds(5.0);
+        private readonly TimeSpan minBanTime = TimeSpan.FromSeconds(5.0);
+        private readonly TimeSpan minimumTimeBetweenFailedLoginAttempts = TimeSpan.FromSeconds(1.0);
         private readonly TimeSpan minimumTimeBetweenSuccessfulLoginAttempts = TimeSpan.FromSeconds(5.0);
 
         private readonly string ipThreatApiKey = string.Empty;
@@ -132,6 +130,7 @@ namespace DigitalRuby.IPBanCore
         private readonly Regex userNameWhitelistRegex;
         private readonly int failedLoginAttemptsBeforeBanUserNameWhitelist = 20;
         private readonly string processToRunOnBan = string.Empty;
+        private readonly string processToRunOnSuccessfulLogin = string.Empty;
         private readonly string processToRunOnUnban = string.Empty;
         private readonly bool useDefaultBannedIPAddressHandler;
         private readonly string getUrlUpdate = string.Empty;
@@ -139,7 +138,7 @@ namespace DigitalRuby.IPBanCore
         private readonly string getUrlStop = string.Empty;
         private readonly string getUrlConfig = string.Empty;
         private readonly string firewallUriRules = string.Empty;
-        private readonly List<IPBanFirewallRule> extraRules = new();
+        private readonly List<IPBanFirewallRule> extraRules = [];
         private readonly EventViewerExpressionsToBlock expressionsFailure;
         private readonly EventViewerExpressionsToNotify expressionsSuccess;
 
@@ -189,7 +188,7 @@ namespace DigitalRuby.IPBanCore
             GetConfig<int>("FailedLoginAttemptsBeforeBan", ref failedLoginAttemptsBeforeBan, 1, 50);
             TryGetConfig<bool>("ResetFailedLoginCountForUnbannedIPAddresses", ref resetFailedLoginCountForUnbannedIPAddresses);
             GetConfigArray<TimeSpan>("BanTime", ref banTimes, emptyTimeSpanArray);
-            MakeBanTimesValid(ref banTimes);
+            MakeBanTimesValid(ref banTimes, minBanTime);
             TryGetConfig<bool>("ClearBannedIPAddressesOnRestart", ref clearBannedIPAddressesOnRestart);
             TryGetConfig<bool>("ClearFailedLoginsOnSuccessfulLogin", ref clearFailedLoginsOnSuccessfulLogin);
             TryGetConfig<bool>("ProcessInternalIPAddresses", ref processInternalIPAddresses);
@@ -216,6 +215,8 @@ namespace DigitalRuby.IPBanCore
 
             TryGetConfig<string>("ProcessToRunOnBan", ref processToRunOnBan);
             processToRunOnBan = processToRunOnBan?.Trim();
+            TryGetConfig<string>("ProcessToRunOnSuccessfulLogin", ref processToRunOnSuccessfulLogin);
+            processToRunOnSuccessfulLogin = processToRunOnSuccessfulLogin?.Trim();
             TryGetConfig<string>("ProcessToRunOnUnban", ref processToRunOnUnban);
             processToRunOnUnban = processToRunOnUnban?.Trim();
             TryGetConfig<bool>("UseDefaultBannedIPAddressHandler", ref useDefaultBannedIPAddressHandler);
@@ -263,7 +264,8 @@ namespace DigitalRuby.IPBanCore
                 Logger.Warn("Ignoring null/empty key");
                 return null;
             }
-            else if (!appSettings.ContainsKey(key))
+
+            if (!appSettings.TryGetValue(key, out var stringValue) || stringValue is null)
             {
                 if (logMissing)
                 {
@@ -272,11 +274,8 @@ namespace DigitalRuby.IPBanCore
                 return null; // skip trying to convert
             }
 
-            // read value from appSettings
-            var stringValue = appSettings[key];
-
             // config value can be read from env var if value starts and ends with %
-            if (stringValue.StartsWith("%") && stringValue.EndsWith("%"))
+            if (stringValue.StartsWith('%') && stringValue.EndsWith('%'))
             {
                 // read value from environment variable
                 stringValue = Environment.GetEnvironmentVariable(stringValue.Trim('%'))?.Trim() ?? string.Empty;
@@ -285,7 +284,7 @@ namespace DigitalRuby.IPBanCore
             return stringValue;
         }
 
-        private static void MakeBanTimesValid(ref TimeSpan[] banTimes)
+        private static void MakeBanTimesValid(ref TimeSpan[] banTimes, TimeSpan minBanTime)
         {
             var newBanTimes = new List<TimeSpan>();
             TimeSpan max = TimeSpan.MinValue;
@@ -298,7 +297,7 @@ namespace DigitalRuby.IPBanCore
                 }
                 else
                 {
-                    banTimes[i] = banTimes[i].Clamp(TimeSpan.FromMinutes(1.0), maxBanTimeSpan);
+                    banTimes[i] = banTimes[i].Clamp(minBanTime, maxBanTimeSpan);
                 }
                 // Ensure all times are in strictly ascending order. We remember the up to i largest span in max. If a new span is smaller we have an issue.
                 // It is not enough to check banTimes[i-1] >= banTimes[i]. Example: 5,2,3 -> 2 would be skipped but not 3 which is also violating the order.
@@ -312,7 +311,7 @@ namespace DigitalRuby.IPBanCore
                     newBanTimes.Add(max);
                 }
             }
-            banTimes = newBanTimes.ToArray();
+            banTimes = [.. newBanTimes];
         }
 
         private static readonly ConcurrentDictionary<Type, XmlSerializer> eventViewerSerializers = new();
@@ -332,7 +331,7 @@ namespace DigitalRuby.IPBanCore
                 catch (Exception ex)
                 {
                     Logger.Error("Failed to load event viewer expressions of type " + typeof(T).FullName, ex);
-                    eventViewerExpressions = new T { Groups = new List<EventViewerExpressionGroup>() };
+                    eventViewerExpressions = new T { Groups = [] };
                 }
                 foreach (EventViewerExpressionGroup group in eventViewerExpressions.Groups)
                 {
@@ -422,7 +421,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="defaultValue">Default value if null or not found</param>
         /// <returns>Value or defaultValue if not found</returns>
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public T GetConfig<T>(string key, T defaultValue = default)
+        public T GetConfig<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string key, T defaultValue = default)
         {
             T value = defaultValue;
             TryGetConfig(key, ref value);
@@ -438,7 +437,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="logMissing">Whether to log missing keys</param>
         /// <returns>True if config found, false if not</returns>
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public bool TryGetConfig<T>(string key, ref T value, bool logMissing = true)
+        public bool TryGetConfig<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string key, ref T value, bool logMissing = true)
         {
             try
             {
@@ -471,7 +470,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="clampSmallTimeSpan">Whether to clamp small timespan to max value</param>
         /// <returns>Value</returns>
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public void GetConfig<T>(string key, ref T value, T? minValue = null, T? maxValue = null, bool clampSmallTimeSpan = true) where T : struct, IComparable<T>
+        public void GetConfig<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string key, ref T value, T? minValue = null, T? maxValue = null, bool clampSmallTimeSpan = true) where T : struct, IComparable<T>
         {
             try
             {
@@ -501,14 +500,14 @@ namespace DigitalRuby.IPBanCore
         /// <param name="value">Value</param>
         /// <param name="defaultValue">Default value if array was empty</param>
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
-        public void GetConfigArray<T>(string key, ref T[] value, T[] defaultValue)
+        public void GetConfigArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string key, ref T[] value, T[] defaultValue)
         {
             try
             {
                 var stringValue = GetAppSettingsValue(key) ?? string.Empty;
                 var converter = TypeDescriptor.GetConverter(typeof(T));
                 string[] items = stringValue.Split('|', ';', ',');
-                List<T> list = new();
+                List<T> list = [];
                 foreach (string item in items)
                 {
                     string normalizedItem = item.Trim();
@@ -519,11 +518,11 @@ namespace DigitalRuby.IPBanCore
                 }
                 if (list.Count == 0)
                 {
-                    value = (defaultValue ?? list.ToArray());
+                    value = (defaultValue ?? [.. list]);
                 }
                 else
                 {
-                    value = list.ToArray();
+                    value = [.. list];
                 }
             }
             catch (Exception ex)
@@ -566,15 +565,15 @@ namespace DigitalRuby.IPBanCore
         /// Check if a user name fails the user name whitelist regex. If the regex is empty, method returns false.
         /// </summary>
         /// <param name="userName">User name</param>
-        /// <returns>True if failed the regex, false otherwise</returns>
-        public bool UserNameFailsUserNameWhitelistRegex(string userName)
+        /// <returns>True if passed the regex, false otherwise</returns>
+        public bool UserNameWhitelistedRegex(string userName)
         {
             if (userNameWhitelistRegex is null)
             {
                 return false;
             }
             userName = userName.Normalize().Trim();
-            return !userNameWhitelistRegex.IsMatch(userName);
+            return userNameWhitelistRegex.IsMatch(userName);
         }
 
         /// <summary>
@@ -610,22 +609,22 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         /// <param name="keywords">Keywords</param>
         /// <returns>Groups that match</returns>
-        public IEnumerable<EventViewerExpressionGroup> WindowsEventViewerGetGroupsMatchingKeywords(ulong keywords)
+        public IReadOnlyCollection<EventViewerExpressionGroup> WindowsEventViewerGetGroupsMatchingKeywords(ulong keywords)
         {
             if (WindowsEventViewerExpressionsToBlock is null && expressionsSuccess is null)
             {
-                return Array.Empty<EventViewerExpressionGroup>();
+                return [];
             }
             else if (WindowsEventViewerExpressionsToBlock is null)
             {
-                return expressionsSuccess.Groups.Where(g => (g.KeywordsULONG == keywords));
+                return expressionsSuccess.Groups.Where(g => (g.KeywordsULONG == keywords)).ToArray();
             }
             else if (expressionsSuccess is null)
             {
-                return WindowsEventViewerExpressionsToBlock.Groups.Where(g => (g.KeywordsULONG == keywords));
+                return WindowsEventViewerExpressionsToBlock.Groups.Where(g => (g.KeywordsULONG == keywords)).ToArray();
             }
             return WindowsEventViewerExpressionsToBlock.Groups.Where(g => (g.KeywordsULONG == keywords))
-                .Union(expressionsSuccess.Groups.Where(g => (g.KeywordsULONG == keywords)));
+                .Concat(expressionsSuccess.Groups.Where(g => (g.KeywordsULONG == keywords))).ToArray();
         }
 
         /// <summary>
@@ -654,11 +653,7 @@ namespace DigitalRuby.IPBanCore
 
             XmlDocument doc = new();
             doc.LoadXml(config);
-            XmlNode appSettings = doc.SelectSingleNode($"/configuration/appSettings");
-            if (appSettings is null)
-            {
-                throw new InvalidOperationException("Unable to find appSettings in config");
-            }
+            XmlNode appSettings = doc.SelectSingleNode($"/configuration/appSettings") ?? throw new InvalidOperationException("Unable to find appSettings in config");
             XmlNode existingSetting = doc.SelectSingleNode($"/configuration/appSettings/add[@key='{key}']");
             if (existingSetting is null)
             {
@@ -674,6 +669,44 @@ namespace DigitalRuby.IPBanCore
             else
             {
                 existingSetting.Attributes["value"].Value = newValue;
+            }
+            return doc.OuterXml;
+        }
+
+        /// <summary>
+        /// Change event viewer settings in config
+        /// </summary>
+        /// <param name="config">Config xml</param>
+        /// <param name="failedLogin">True for failed login section, false for successful login section</param>
+        /// <param name="delete">True to delete, false to insert</param>
+        /// <param name="groups">Groups to add, minues the Group container element</param>
+        /// <returns>New config</returns>
+        public static string ChangeConfigEventViewer(string config, bool failedLogin, bool delete, string[] groups)
+        {
+            XmlDocument doc = new();
+            doc.LoadXml(config);
+            var section = failedLogin ? "ExpressionsToBlock" : "ExpressionsToNotify";
+            XmlNode eventViewerSection = doc.SelectSingleNode($"/configuration/{section}/Groups") ?? throw new InvalidOperationException("Unable to find " + section + " in config");
+            foreach (var groupXml in groups)
+            {
+                if (delete)
+                {
+                    var children = eventViewerSection.ChildNodes.Cast<XmlNode>().ToArray();
+                    foreach (var node in children)
+                    {
+                        if (node is XmlElement element && element.Name == "Group" && element.InnerXml == groupXml)
+                        {
+                            eventViewerSection.RemoveChild(node);
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    var element = doc.CreateElement("Group");
+                    element.InnerXml = groupXml;
+                    eventViewerSection.AppendChild(element);
+                }
             }
             return doc.OuterXml;
         }
@@ -758,12 +791,27 @@ namespace DigitalRuby.IPBanCore
                 {
                     if (overrideNode.NodeType == XmlNodeType.Element)
                     {
+                        string mergeAttribute = overrideNode.Attributes["merge"]?.Value;
+                        bool doMerge = !string.IsNullOrWhiteSpace(mergeAttribute) && mergeAttribute.Equals("true", StringComparison.OrdinalIgnoreCase);
                         string xpath = $"/configuration/appSettings/add[@key='{overrideNode.Attributes["key"].Value}']";
                         XmlNode existing = appSettingsBase.SelectSingleNode(xpath);
                         if (existing is null)
                         {
                             // create a new node
                             appSettingsBase.AppendChild(docBase.ImportNode(overrideNode, true));
+                        }
+                        else if (doMerge)
+                        {
+                            // merge override with existing
+                            string overrideValue = overrideNode.Attributes["value"]?.Value ?? string.Empty;
+                            string origValue = existing.Attributes["value"]?.Value ?? string.Empty;
+                            string mergeDelimiter = overrideNode.Attributes["mergeDelimiter"]?.Value;
+                            if (string.IsNullOrWhiteSpace(mergeDelimiter))
+                            {
+                                mergeDelimiter = Environment.NewLine;
+                            }
+                            string mergedValue = (origValue + mergeDelimiter + overrideValue).Trim();
+                            existing.Attributes["value"].Value = mergedValue;
                         }
                         else
                         {
@@ -778,11 +826,102 @@ namespace DigitalRuby.IPBanCore
             return docBase;
         }
 
-        /// <inheritdoc />
-        public bool IsWhitelisted(string entry) => whitelistFilter.IsFiltered(entry);
+        /// <summary>
+        /// Parse firewall uri rules
+        /// </summary>
+        /// <param name="text">Text</param>
+        /// <param name="firewall">Firewall</param>
+        /// <param name="firewallTaskRunner">Firewall task runner</param>
+        /// <param name="whitelistChecker">Whitelist checker</param>
+        /// <param name="requestMaker">Request maker</param>
+        /// <returns>Parsed rules</returns>
+        public static IReadOnlyCollection<IPBanUriFirewallRule> ParseFirewallUriRules(string text,
+            IIPBanFirewall firewall,
+            IFirewallTaskRunner firewallTaskRunner,
+            IIsWhitelisted whitelistChecker,
+            IHttpRequestMaker requestMaker)
+        {
+            using StringReader reader = new(text);
+            List<IPBanUriFirewallRule> rules = [];
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                line = line.Trim();
+                string[] pieces = line.Split(',', StringSplitOptions.TrimEntries);
+                if (pieces.Length >= 3)
+                {
+                    if (TimeSpan.TryParse(pieces[1], out TimeSpan interval))
+                    {
+                        if (Uri.TryCreate(pieces[2], UriKind.Absolute, out Uri uri))
+                        {
+                            string rulePrefix = pieces[0];
+                            int maxCount = 10000;
+                            if (pieces.Length > 3 && int.TryParse(pieces[3], out int _maxCount))
+                            {
+                                maxCount = _maxCount;
+                            }
+                            IPBanUriFirewallRule newRule = new(firewall, firewallTaskRunner, whitelistChecker, requestMaker, rulePrefix, interval, uri, maxCount);
+                            rules.Add(newRule);
+                        }
+                        else
+                        {
+                            Logger.Warn("Invalid uri format in uri firewall rule {0}", line);
+                        }
+                    }
+                    else
+                    {
+                        Logger.Warn("Invalid timespan format in uri firewall rule {0}", line);
+                    }
+                }
+            }
+
+            return rules;
+        }
+
+        /// <summary>
+        /// Validate firewall uri rules
+        /// </summary>
+        /// <param name="firewallUriRules">Firewall uri rules</param>
+        /// <returns>Null if validated, otherwise an error</returns>
+        public static string ValidateFirewallUriRules(string firewallUriRules)
+        {
+            using StringReader reader = new(firewallUriRules);
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                line = line.Trim();
+                string[] pieces = line.Split(',', StringSplitOptions.TrimEntries);
+                if (pieces.Length >= 3)
+                {
+                    if (TimeSpan.TryParse(pieces[1], out TimeSpan interval))
+                    {
+                        if (Uri.TryCreate(pieces[2], UriKind.Absolute, out Uri uri))
+                        {
+                            string rulePrefix = pieces[0]?.Trim() ?? string.Empty;
+                            if (string.IsNullOrWhiteSpace(rulePrefix))
+                            {
+                                return $"Invalid empty rule in uri firewall rule {line}";
+                            }
+                        }
+                        else
+                        {
+                            return $"Invalid uri format in uri firewall rule {line}";
+                        }
+                    }
+                    else
+                    {
+                        return $"Invalid timespan format in uri firewall rule {line}";
+                    }
+                }
+            }
+            return null;
+        }
 
         /// <inheritdoc />
-        public bool IsWhitelisted(IPAddressRange range) => whitelistFilter.IsFiltered(range);
+        public bool IsWhitelisted(string entry, out string reason) => whitelistFilter.IsFiltered(entry, out reason);
+
+        /// <inheritdoc />
+        public bool IsWhitelisted(IPAddressRange range, out string reason) => whitelistFilter.IsFiltered(range, out reason);
 
         /// <summary>
         /// Raw xml
@@ -798,7 +937,7 @@ namespace DigitalRuby.IPBanCore
         /// Api key from https://ipthreat.net, if any
         /// </summary>
         public string IPThreatApiKey { get { return ipThreatApiKey; } }
-        
+
         /// <summary>
         /// Number of failed login attempts before a ban is initiated
         /// </summary>
@@ -906,6 +1045,11 @@ namespace DigitalRuby.IPBanCore
         /// Process to run on ban. See ReplaceUrl in IPBanService.cs for place-holders.
         /// </summary>
         public string ProcessToRunOnBan { get { return processToRunOnBan; } }
+
+        /// <summary>
+        /// Process to run on successful login. See ReplaceUrl in IPBanService.cs for place-holders.
+        /// </summary>
+        public string ProcessToRunOnSuccessfulLogin { get { return processToRunOnSuccessfulLogin; } }
 
         /// <summary>
         /// Process to run on unban. See ReplaceUrl in IPBanService.cs for place-holders.

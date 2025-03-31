@@ -13,11 +13,12 @@
 
 ## Requirements
 
-- IPBan free version requires .NET 6 SDK to build and debug code. For an IDE, I suggest Visual Studio Community for Windows, or VS code for Linux. All are free. You can build a self contained executable to eliminate the need for dotnet core on the server machine, or just download the precompiled binaries in releases.
+- IPBan free version requires .NET 9 SDK to build and debug code. For an IDE, I suggest Visual Studio Community for Windows, or VS code for Linux. All are free. You can build a self contained executable to eliminate the need for dotnet core on the server machine, or just download the precompiled binaries in releases.
 - Running and/or debugging code requires that you run your IDE or terminal as administrator or root.
 - Officially supported platforms:
-	- Windows 8.1 or newer (x86, x64)
-	- Windows Server 2012 or newer (x86, x64)
+	- Windows 10 or newer (x86, x64)
+	- Windows Server 2016 or newer (x86, x64)
+   	- Windows Server 2025 or newer requires IPBan 2.0.1 or newer.
 	- Linux Ubuntu x64 (requires firewalld)
 	- Linux Debian x64 (requires firewalld)
 	- Linux CentOS x64 (requires firewalld)
@@ -46,20 +47,21 @@ Please note that for IPBan Pro, you can find install instructions at https://ipb
 
 ### **Windows**
 
-- IPBan is supported on Windows Server 2012 and Windows 8, or newer.
+- IPBan is supported on Windows Server 2016 and Windows 10, or newer.
+- Fail2Ban but for Windows!
 - Easy one click install, open admin powershell and run:
 ```
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/DigitalRuby/IPBan/master/IPBanCore/Windows/Scripts/install_latest.ps1'))
+$ProgressPreference = 'SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/DigitalRuby/IPBan/master/IPBanCore/Windows/Scripts/install_latest.ps1'))
 ```
 Note: Powershell 5.1 or greater is required.
 
 ***Additional Windows Notes***
-- Windows Server 2012 and Windows 8 are nearing end of life. Upgrading to a newer Windows version is highly recommended. Support will drop for these Windows versions on January 1, 2024.
-- For Windows Server 2012 only: Disable NLA and enable NTLM. Otherwise ip addresses of remote connections do not show up in the event viewer. There is no known workaround that I know of to fix this, other than turning off NLA and enabling NTLM. Newer Windows (Server 2016+, Windows 10+) are not impacted by this problem.
+- Windows Server 2012 is no longer supported as of October 2023. Please upgrade to a different operating system that is actually supported by Microsoft.
 - Please ensure your server and clients are patched before making the above change: https://support.microsoft.com/en-us/help/4093492/credssp-updates-for-cve-2018-0886-march-13-2018. You need to manually edit group policy as specified in the link.
 ![](IPBan/img/WindowsCredSSP.png)
 - On Windows Server running Exchange, it is impossible to disable NTLM (deny all clients in Security restrict ntlm incoming ntlm traffic) as then Outlook on client computers permanently asks users for entering username and password. To workaround this, set LAN Manager authenticating level in Security Options of Local Policies to "Send NTLMv2 response only. Refuse LM & NTLM". There is one small issue – when somebody tries to login with an undefined username, the log does not contain an IP address. Not sure why Microsoft can't log an ip address properly.
 - If using Exchange, disabling app pool 'MSExchangeServicesAppPool' can eliminate quite a lot of problems in the event viewer with ip addresses not being logged.
+- Uninstaller: https://github.com/DigitalRuby/IPBan/blob/master/IPBanCore/Windows/Scripts/uninstall.cmd
 
 ### Linux
 
@@ -67,6 +69,8 @@ Easy one click install:
 ```
 sudo -i; bash <(wget -qO- https://raw.githubusercontent.com/DigitalRuby/IPBan/master/IPBanCore/Linux/Scripts/Install.sh)
 ```
+
+Uninstall: `sudo systemctl stop ipban; sudo systemctl disable ipban; sudo rm /opt/ipban -r`
 
 ## Other Information
 

@@ -17,7 +17,7 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Represents a consecutive range of ip addresses
     /// </summary>
-    public class IPAddressRange : IEnumerable<IPAddress>, IReadOnlyDictionary<string, string>, IComparable<IPAddressRange>
+    public sealed class IPAddressRange : IEnumerable<IPAddress>, IReadOnlyDictionary<string, string>, IComparable<IPAddressRange>
     {
         private static class Bits
         {
@@ -46,13 +46,13 @@ namespace DigitalRuby.IPBanCore
                                 if (bit == 0x00) f = 0x00;
                                 break;
                             default:
-                            {
-                                if (throwException)
                                 {
-                                    throw new FormatException("The subnet mask is not linear, bad bit: " + ipRangeString);
+                                    if (throwException)
+                                    {
+                                        throw new FormatException("The subnet mask is not linear, bad bit: " + ipRangeString);
+                                    }
+                                    return false;
                                 }
-                                return false;
-                            }
                         }
                         maskByte <<= 1;
                     }
@@ -106,8 +106,8 @@ namespace DigitalRuby.IPBanCore
 
             public static bool LtE(byte[] A, byte[] B, int offset = 0)
             {
-                if (A is null) throw new ArgumentNullException(nameof(A));
-                if (B is null) throw new ArgumentNullException(nameof(B));
+                ArgumentNullException.ThrowIfNull(A);
+                ArgumentNullException.ThrowIfNull(B);
                 if (offset < 0) throw new ArgumentException("offset must be greater than or equal 0.", nameof(offset));
                 if (A.Length <= offset || B.Length <= offset) throw new ArgumentException("offset must be less than length of A and B.", nameof(offset));
 
@@ -127,8 +127,8 @@ namespace DigitalRuby.IPBanCore
 
             public static bool GtE(byte[] A, byte[] B, int offset = 0)
             {
-                if (A is null) throw new ArgumentNullException(nameof(A));
-                if (B is null) throw new ArgumentNullException(nameof(B));
+                ArgumentNullException.ThrowIfNull(A);
+                ArgumentNullException.ThrowIfNull(B);
                 if (offset < 0) throw new ArgumentException("offset must be greater than or equal 0.", nameof(offset));
                 if (A.Length <= offset || B.Length <= offset) throw new ArgumentException("offset must be less than length of A and B.", nameof(offset));
 
@@ -174,7 +174,7 @@ namespace DigitalRuby.IPBanCore
             /// <returns></returns>
             public static int? GetBitMaskLength(byte[] bytes)
             {
-                if (bytes is null) throw new ArgumentNullException(nameof(bytes));
+                ArgumentNullException.ThrowIfNull(bytes);
 
                 var bitLength = 0;
                 var idx = 0;
@@ -205,10 +205,10 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private static readonly char[] commentChars = new[]
-        {
+        private static readonly char[] commentChars =
+        [
             ';', '#'
-        };
+        ];
 
         // Pattern 1. CIDR range: "192.168.0.0/24", "fe80::%lo0/10"
         private static readonly Regex m1_regex = new(@"^(?<adr>([\d.]+)|([\da-f:]+(:[\d.]+)?(%\w+)?))[ \t]*/[ \t]*(?<maskLen>\d+)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -369,9 +369,15 @@ namespace DigitalRuby.IPBanCore
             // check if the passed range is fully inside this range with room to spare on both ends
             int cmpLeft = range.Begin.CompareTo(Begin);
             int cmpRight = range.End.CompareTo(End);
-            if (cmpLeft > 0 && cmpRight < 0)
+            left = right = null;
+            if (cmpLeft <= 0 && cmpRight >= 0)
             {
-                // full chomp, left and right will be set
+                // full chomp
+                return true;
+            }
+            else if (cmpLeft > 0 && cmpRight < 0)
+            {
+                // middle chomp, left and right will be set
                 if (!range.Begin.TryDecrement(out IPAddress end))
                 {
                     throw new ApplicationException("Unexpected failed decrement of " + range.Begin);
@@ -384,15 +390,9 @@ namespace DigitalRuby.IPBanCore
                 right = new IPAddressRange(start, End);
                 return true;
             }
-            else if (cmpLeft == 0 && cmpRight == 0)
-            {
-                left = right = null;
-                return true;
-            }
             else if (cmpRight < 0 && range.End.CompareTo(Begin) >= 0)
             {
                 // chomp with only right piece remaining
-                left = null;
                 if (!range.End.TryIncrement(out IPAddress start))
                 {
                     throw new ApplicationException("Unexpected failed increment of " + range.End);
@@ -408,10 +408,9 @@ namespace DigitalRuby.IPBanCore
                     throw new ApplicationException("Unexpected failed decrement of " + range.Begin);
                 }
                 left = new IPAddressRange(Begin, end);
-                right = null;
                 return true;
             }
-            left = right = null;
+
             return false;
         }
 
@@ -616,10 +615,7 @@ namespace DigitalRuby.IPBanCore
             IPAddressRange current = null;
             foreach (IPAddressRange range in ranges.OrderBy(i => i))
             {
-                if (first is null)
-                {
-                    first = range;
-                }
+                first ??= range;
                 if (current is null)
                 {
                     current = range;
@@ -753,14 +749,14 @@ namespace DigitalRuby.IPBanCore
         public int GetPrefixLength(bool throwException = true)
         {
             byte[] byteBegin = Begin.GetAddressBytes();
+            int length = byteBegin.Length * 8;
 
             // Handle single IP
             if (Single)
             {
-                return byteBegin.Length * 8;
+                return length;
             }
 
-            int length = byteBegin.Length * 8;
             for (int i = 0; i < length; i++)
             {
                 byte[] mask = Bits.GetBitMask(byteBegin.Length, i);
@@ -834,12 +830,13 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public IEnumerable<IPAddress> AsEnumerable() => (this as IEnumerable<IPAddress>);
 
-        private IEnumerable<KeyValuePair<string, string>> GetDictionaryItems()
+        private KeyValuePair<string, string>[] GetDictionaryItems()
         {
-            return new[] {
+            return
+            [
                 new KeyValuePair<string,string>(nameof(Begin), Begin.ToString()),
                 new KeyValuePair<string,string>(nameof(End), End.ToString()),
-            };
+            ];
         }
 
         private bool TryGetValue(string key, out string value) => TryGetValue(GetDictionaryItems(), key, out value);
@@ -859,7 +856,7 @@ namespace DigitalRuby.IPBanCore
         IEnumerable<string> IReadOnlyDictionary<string, string>.Values => GetDictionaryItems().Select(item => item.Value);
 
         /// <inheritdoc />
-        int IReadOnlyCollection<KeyValuePair<string, string>>.Count => GetDictionaryItems().Count();
+        int IReadOnlyCollection<KeyValuePair<string, string>>.Count => GetDictionaryItems().Length;
 
         /// <inheritdoc />
         string IReadOnlyDictionary<string, string>.this[string key] => TryGetValue(key, out var value) ? value : throw new KeyNotFoundException();
@@ -871,7 +868,7 @@ namespace DigitalRuby.IPBanCore
         bool IReadOnlyDictionary<string, string>.TryGetValue(string key, out string value) => TryGetValue(key, out value);
 
         /// <inheritdoc />
-        IEnumerator<KeyValuePair<string, string>> IEnumerable<KeyValuePair<string, string>>.GetEnumerator() => GetDictionaryItems().GetEnumerator();
+        IEnumerator<KeyValuePair<string, string>> IEnumerable<KeyValuePair<string, string>>.GetEnumerator() => (IEnumerator<KeyValuePair<string, string>>)GetDictionaryItems().GetEnumerator();
 
         /// <summary>
         /// Compare to another ip address range

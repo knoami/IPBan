@@ -403,7 +403,7 @@
     <value>Your IPBan Pro Private API Key</value>
   </data>
   <data name="ProcessToRunOnBan" xml:space="preserve">
-    <value>Process to Run on Ban</value>
+    <value>Run on Ban</value>
   </data>
   <data name="ProcessToRunOnBanTooltip" xml:space="preserve">
     <value>Run an external process when a ban occurs. Separate the process and any arguments with a pipe (|). ###IPADDRESS### will be replaced with the actual IP which was banned. The pipe is required. Example: c:\system\files\on_ip_banned.exe|###IPADDRESS### -q</value>
@@ -419,7 +419,7 @@
     <comment>Recent activity, i.e. the most recent ip addresses that have been banned</comment>
   </data>
   <data name="RecentBannedIPAddresses" xml:space="preserve">
-    <value>Recent Banned IP IPAddresses</value>
+    <value>Recent Banned IP Addresses</value>
     <comment>Recently banned ip addresses</comment>
   </data>
   <data name="RecentFailedLogins" xml:space="preserve">
@@ -618,7 +618,8 @@
     <value>Paths and Masks</value>
   </data>
   <data name="PathAndMaskTooltip" xml:space="preserve">
-    <value>Paths and masks to search, one per line. Glob syntax can be used for recursion, i.e. /logs/**/*.log</value>
+    <value>Paths and masks to search, one per line. Glob syntax can be used for recursion, i.e. /logs/**/*.log
+Can prefix with DB: to make it a db connection string instead of files, using format DB:TYPE:CONN_STRING. Type can be SqlServer, PostgreSql, MySql, or Sqlite. The regex in this case are sql queries, and must retrieve these columns: timestamp, ip_address, source, user_name. The query must also include a WHERE clause with ONE of the following: timestamp &gt; @Timestamp; timestamp &gt; @TimestampLocal; timestamp &gt; @TimestampUnix.</value>
   </data>
   <data name="LogFilePingInterval" xml:space="preserve">
     <value>Ping Interval</value>
@@ -725,7 +726,10 @@
     <value>Firewall Rules</value>
   </data>
   <data name="FirewallRulesTooltip" xml:space="preserve">
-    <value>Extra firewall rules, one per line. Great way to persist firewall rules. Format is 'rule-name;allow or block;ip list (comma spearated);allowed port list (comma separated);platform regex'. The name should be kept to 16 or less chars.</value>
+    <value>Extra firewall rules, one per line. Great way to persist firewall rules. Format is 'rule-name;allow or block;ip list (comma spearated);port list (comma separated);platform regex'. The name should be kept to 16 or less chars.
+
+For allow rules, port list is allowed ports, so if you wanted to allow port 3389, just enter 3389.
+For block rules, port list is ignored ports, so if you wanted to block port 3389, you'd enter 0-3388,3390-65535.</value>
   </data>
   <data name="UserNameWhitelistRegex" xml:space="preserve">
     <value>User Name Whitelist Regex</value>
@@ -737,7 +741,7 @@
     <value>Firewall Uri Rules</value>
   </data>
   <data name="FirewallUriRulesTooltip" xml:space="preserve">
-    <value>Config entry for firewall uri rules, one per line. Format is RulePrefix,Interval(DD:HH:MM:SS),Uri[NEWLINE].</value>
+    <value>Config entry for firewall uri rules, one per line. Format is RulePrefix,Interval(DD:HH:MM:SS),Uri[NEWLINE]. $ts$ in uri's will be replaced with timestamp.</value>
   </data>
   <data name="FailedLoginRegexTimestampFormat" xml:space="preserve">
     <value>Failed Login Regex Timestamp Format</value>
@@ -782,7 +786,7 @@
     <comment>Change user/password</comment>
   </data>
   <data name="ProcessToRunOnUnban" xml:space="preserve">
-    <value>Process to Run on Unban</value>
+    <value>Run on Unban</value>
   </data>
   <data name="ProcessToRunOnUnbanTooltip" xml:space="preserve">
     <value>Run an external process when a ban is removed. Separate the process and any arguments with a pipe (|). ###IPADDRESS### will be replaced with the actual IP which was unbanned. The pipe is required. Example: c:\system\files\on_ip_unbanned.exe|###IPADDRESS### -q</value>
@@ -837,7 +841,7 @@
     <value>Notification Web Hook</value>
   </data>
   <data name="NotificationWebHookTooltip" xml:space="preserve">
-    <value>Url to POST a json request for notifications. The posted json contains Subject, Body and ToAddresses fields. Advanced: Use Uri=[uri] | Template=[template] | Format=[plain or markdown or slack, leave off for html]. Template will transform notification to your json. Example: { "text":"###SUBJECT###","blocks": [ { "type": "section", "text": { "type": "mrkdwn", "text": "###SUBJECT###\n\n###BODY###" } } ] } | format = slack | Uri = https://hooks.slack.com/services/KEY1/KEY2</value>
+    <value>Url to POST a json request for notifications. The posted json contains Subject, Body and ToAddresses fields. Advanced: Use Uri=[uri] | Template=[template] | Format=[plain or markdown or slack, leave off for html]. Template will transform notification to your json. Example: { "text":"###SUBJECT###","blocks": [ { "type": "section", "text": { "type": "mrkdwn", "text": "###SUBJECT###\n\n###BODY###\n\n###DATA###" } } ] } | format = slack | Uri = https://hooks.slack.com/services/KEY1/KEY2</value>
   </data>
   <data name="FailedLoginLogLevel" xml:space="preserve">
     <value>Failed Log Level</value>
@@ -882,7 +886,7 @@
     <value>Common Failed User Name Ban</value>
   </data>
   <data name="AggregateBanUserNamesTooltip" xml:space="preserve">
-    <value>Threshold,hours to examine common user names and ban attackers that meet a threshold within hours timespan. Set to empty to disable this feature.</value>
+    <value>Count,hours to examine common user names and ban attackers that meet a count within hours timespan. Set to empty to disable this feature.</value>
   </data>
   <data name="CountryBlacklistInvert" xml:space="preserve">
     <value>Invert Country Blocklist</value>
@@ -1088,5 +1092,83 @@
   </data>
   <data name="SslSelfSignedCertificateTooltip" xml:space="preserve">
     <value>Turn on if your certificate is self signed</value>
+  </data>
+  <data name="Alias" xml:space="preserve">
+    <value>Alias</value>
+  </data>
+  <data name="Import" xml:space="preserve">
+    <value>Import</value>
+  </data>
+  <data name="Whitelister" xml:space="preserve">
+    <value>Whitelister</value>
+  </data>
+  <data name="AggregateBanUserNamesAllowBlank" xml:space="preserve">
+    <value>Process Blank User Names</value>
+  </data>
+  <data name="AggregateBanUserNamesAllowBlankTooltip" xml:space="preserve">
+    <value>Whether to include blank user names in aggregation for banning across your entire network.</value>
+  </data>
+  <data name="ConcurrentRemoteIPBan" xml:space="preserve">
+    <value>Concurrent Remote IP Ban</value>
+  </data>
+  <data name="ConcurrentRemoteIPBanTooltip" xml:space="preserve">
+    <value>Count,seconds for banning connected remote ips that meet a concurrent count for a specified number of seconds. Set to empty to disable this feature.</value>
+  </data>
+  <data name="ResetLicenseKeys" xml:space="preserve">
+    <value>Reset License Keys</value>
+  </data>
+  <data name="Logs" xml:space="preserve">
+    <value>Logs</value>
+  </data>
+  <data name="MaxCount" xml:space="preserve">
+    <value>Max Count</value>
+  </data>
+  <data name="Critical" xml:space="preserve">
+    <value>Critical</value>
+  </data>
+  <data name="Information" xml:space="preserve">
+    <value>Information</value>
+  </data>
+  <data name="Warning" xml:space="preserve">
+    <value>Warning</value>
+  </data>
+  <data name="Cutoff" xml:space="preserve">
+    <value>Cut Off</value>
+  </data>
+  <data name="Refresh" xml:space="preserve">
+    <value>Refresh</value>
+  </data>
+  <data name="ProcessToRunOnSuccessfulLogin" xml:space="preserve">
+    <value>Run on Successful Login</value>
+  </data>
+  <data name="ProcessToRunOnSuccessfulLoginTooltip" xml:space="preserve">
+    <value>Run an external process when a successful login occurs. Separate the process and any arguments with a pipe (|). ###IPADDRESS### will be replaced with the actual IP which was banned. The pipe is required. Example: c:\system\files\on_ip_banned.exe|###IPADDRESS### -q</value>
+  </data>
+  <data name="BanRangeThreshold" xml:space="preserve">
+    <value>Ban range threshold</value>
+  </data>
+  <data name="BanRangeThresholdTooltip" xml:space="preserve">
+    <value>Format: threshold,days,event_type. Threshold is number of failed logins or banned ips in a cidr mask before the entire cidr mask is banned for x days. For ipv4, /24 mask is used with 256 ips. For ipv6, /112 mask is used with 65536 ips. Days specifies duration to ban the range. Event type can be empty or b for banned ip adresses, or f for failed logins. Set to empty to disable this feature.</value>
+  </data>
+  <data name="CheckLastWhitelistAccess" xml:space="preserve">
+    <value>Check Last Whitelist Access</value>
+  </data>
+  <data name="Client" xml:space="preserve">
+    <value>Client</value>
+  </data>
+  <data name="CreatedAt" xml:space="preserve">
+    <value>Created At</value>
+  </data>
+  <data name="UpdatedAt" xml:space="preserve">
+    <value>Updated At</value>
+  </data>
+  <data name="Duration" xml:space="preserve">
+    <value>Duration</value>
+  </data>
+  <data name="Duration_Tooltip" xml:space="preserve">
+    <value>Duration (DD:HH:MM:SS)</value>
+  </data>
+  <data name="Diagnostics" xml:space="preserve">
+    <value>Diagnostics</value>
   </data>
 </root>

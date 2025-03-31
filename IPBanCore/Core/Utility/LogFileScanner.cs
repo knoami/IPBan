@@ -31,7 +31,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace DigitalRuby.IPBanCore
@@ -39,23 +38,18 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Scans a file periodically looking for patterns.
     /// </summary>
-    public class LogFileScanner : IDisposable
+    public class LogFileScanner : ILogScanner
     {
         /// <summary>
         /// Represents a watched file from a log file scanner
         /// </summary>
-        public class WatchedFile
+        /// <remarks>
+        /// Constructor
+        /// </remarks>
+        /// <param name="fileName">File name</param>
+        /// <param name="lastPosition">Last position scanned</param>
+        public class WatchedFile(string fileName, long lastPosition = 0)
         {
-            /// <summary>
-            /// Constructor
-            /// </summary>
-            /// <param name="fileName">File name</param>
-            /// <param name="lastPosition">Last position scanned</param>
-            public WatchedFile(string fileName, long lastPosition = 0)
-            {
-                this.FileName = fileName;
-                LastPosition = lastPosition;
-            }
 
             /// <inheritdoc />
             public override bool Equals(object obj)
@@ -73,12 +67,12 @@ namespace DigitalRuby.IPBanCore
             /// <summary>
             /// File name
             /// </summary>
-            public string FileName { get; private set; }
+            public string FileName { get; private set; } = fileName;
 
             /// <summary>
             /// Last scanned position
             /// </summary>
-            public long LastPosition { get; set; }
+            public long LastPosition { get; set; } = lastPosition;
 
             /// <summary>
             /// Last file length
@@ -91,7 +85,7 @@ namespace DigitalRuby.IPBanCore
             public bool IsBinaryFile { get; internal set; }
         }
 
-        private readonly HashSet<WatchedFile> watchedFiles = new();
+        private readonly HashSet<WatchedFile> watchedFiles = [];
         private readonly System.Timers.Timer fileProcessingTimer;
         private readonly long maxFileSize;
         private readonly Encoding encoding;
@@ -103,7 +97,7 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         /// <param name="pathAndMask">File path and mask with glob syntax (i.e. /var/log/auth*.log)</param>
         /// <param name="maxFileSizeBytes">Max size of file (in bytes) before it is deleted or 0 for unlimited</param>
-        /// <param name="fileProcessingIntervalMilliseconds">How often to process files, in milliseconds, less than 1 for manual processing, in which case <see cref="ProcessFiles"/> must be called as needed.</param>
+        /// <param name="fileProcessingIntervalMilliseconds">How often to process files, in milliseconds, less than 1 for manual processing, in which case <see cref="Update"/> must be called as needed.</param>
         /// <param name="encoding">Encoding or null for utf-8. The encoding must either be single or variable byte, like ASCII, Ansi, utf-8, etc. UTF-16 and the like are not supported.</param>
         /// <param name="maxLineLength">Maximum line length before considering the file a binary file and failing</param>
         /// <param name="startAtBeginning">Whether to start scanning at beginning of file (true) or end (false)</param>
@@ -144,7 +138,7 @@ namespace DigitalRuby.IPBanCore
             if (fileProcessingIntervalMilliseconds > 0)
             {
                 fileProcessingTimer = new System.Timers.Timer(fileProcessingIntervalMilliseconds);
-                fileProcessingTimer.Elapsed += (sender, args) => ProcessFiles();
+                fileProcessingTimer.Elapsed += (sender, args) => Update();
                 fileProcessingTimer.Start();
             }
         }
@@ -179,6 +173,9 @@ namespace DigitalRuby.IPBanCore
             return $"Path/Mask: {PathAndMask}, Files: {watchedFiles.Count}, Encoding: {encoding.EncodingName}";
         }
 
+        /// <inheritdoc />
+        public virtual bool MatchesOptions(LogScannerOptions options) => false;
+
         /// <summary>
         /// Get all files from a path and mask
         /// </summary>
@@ -187,7 +184,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>Found files</returns>
         public static IReadOnlyCollection<WatchedFile> GetFiles(string pathAndMask, bool startAtBeginning = false)
         {
-            List<WatchedFile> files = new();
+            List<WatchedFile> files = [];
 
             // pull out the directory portion of the path/mask, accounting for * syntax in the folder name
             string replacedPathAndMask = ReplacePathVars(pathAndMask);
@@ -224,7 +221,7 @@ namespace DigitalRuby.IPBanCore
         /// Process the files, this is normally done on a timer, but if you have passed a 0 second
         /// processing interval to the constructor, you must call this manually
         /// </summary>
-        public void ProcessFiles()
+        public void Update()
         {
             // disable timer while we parse so it doesn't stack
             SetProcessingTimerEnabled(false);
@@ -261,17 +258,17 @@ namespace DigitalRuby.IPBanCore
                             Logger.Trace("Watched file {0} length has not changed", file.FileName);
                         }
 
-                        // if a max file size is specified and the file is over the max size, delete the file
+                        // if a max file size is specified and the file is over the max size, truncate the file
                         if (maxFileSize > 0 && len > maxFileSize)
                         {
                             try
                             {
-                                Logger.Warn("Deleting log file over max size: {0}", file.FileName);
-                                File.Delete(file.FileName);
+                                Logger.Warn("Truncating log file over max size: {0}", file.FileName);
+                                using var _ = new FileStream(file.FileName, FileMode.Truncate, FileAccess.Write, FileShare.ReadWrite);
                             }
                             catch
                             {
-                                // someone else might have it open, in which case we have no chance to delete
+                                // someone else might have it open, in which case we can try again later
                             }
                         }
                     }
@@ -313,7 +310,7 @@ namespace DigitalRuby.IPBanCore
         public static string NormalizeGlob(string glob, out string dirPortion, out string globPortion)
         {
             dirPortion = globPortion = null;
-            if (string.IsNullOrWhiteSpace(glob))
+            if (string.IsNullOrWhiteSpace(glob) || glob.StartsWith("db:", StringComparison.OrdinalIgnoreCase))
             {
                 return glob;
             }
@@ -340,7 +337,7 @@ namespace DigitalRuby.IPBanCore
             }
             if (dirPortion is null)
             {
-                pos = glob.LastIndexOfAny(new[] { '/', '\\' });
+                pos = glob.LastIndexOfAny(['/', '\\']);
                 if (pos < 0)
                 {
                     throw new ArgumentException("Cannot normalize a glob that does not have a directory and a file piece");
@@ -447,9 +444,11 @@ namespace DigitalRuby.IPBanCore
             DateTime nowUtc = IPBanService.UtcNow;
             DateTime nowLocal = nowUtc.ToLocalTime();
             return path.Replace("{year}", nowUtc.Year.ToString("0000"))
+                .Replace("{shortyear}", nowUtc.Year.ToString("00"))
                 .Replace("{month}", nowUtc.Month.ToString("00"))
                 .Replace("{day}", nowUtc.Day.ToString("00"))
                 .Replace("{year-local}", nowLocal.Year.ToString("0000"))
+                .Replace("{shortyear-local}", nowLocal.Year.ToString("00"))
                 .Replace("{month-local}", nowLocal.Month.ToString("00"))
                 .Replace("{day-local}", nowLocal.Day.ToString("00"));
         }
@@ -457,11 +456,7 @@ namespace DigitalRuby.IPBanCore
         private HashSet<WatchedFile> GetCurrentWatchedFiles()
         {
             // read in existing files that match the mask in the directory being watched
-            HashSet<WatchedFile> watchedFilesCopy = new();
-            foreach (WatchedFile file in LogFileScanner.GetFiles(PathAndMask, startAtBeginning))
-            {
-                watchedFilesCopy.Add(file);
-            }
+            HashSet<WatchedFile> watchedFilesCopy = [.. LogFileScanner.GetFiles(PathAndMask, startAtBeginning)];
 
             lock (watchedFiles)
             {
@@ -504,56 +499,63 @@ namespace DigitalRuby.IPBanCore
             fs.Position = file.LastPosition;
 
             // fill up to 64K bytes
-            using var bytes = BytePool.Rent(ushort.MaxValue);
-            int read = fs.Read(bytes, 0, ushort.MaxValue);
-
-            // setup state
-            int bytesEnd;
-            bool foundNewLine = false;
-
-            // find the last newline char
-            for (bytesEnd = read - 1; bytesEnd >= 0; bytesEnd--)
+            var bytes = ArrayPool<byte>.Shared.Rent(ushort.MaxValue);
+            try
             {
-                if (bytes[bytesEnd] == '\n')
+                int read = fs.Read(bytes, 0, ushort.MaxValue);
+
+                // setup state
+                int bytesEnd;
+                bool foundNewLine = false;
+
+                // find the last newline char
+                for (bytesEnd = read - 1; bytesEnd >= 0; bytesEnd--)
                 {
-                    // take bytes up to and including the last newline char
-                    bytesEnd++;
-                    foundNewLine = true;
-                    break;
+                    if (bytes[bytesEnd] == '\n')
+                    {
+                        // take bytes up to and including the last newline char
+                        bytesEnd++;
+                        foundNewLine = true;
+                        break;
+                    }
+                }
+
+                // check for binary file
+                if (!foundNewLine)
+                {
+                    if (read > maxLineLength)
+                    {
+                        // max line length bytes without a new line
+                        file.IsBinaryFile = true;
+                        Logger.Warn($"Aborting parsing log file {file.FileName}, file may be a binary file");
+                    }
+                    // reset position try again on next cycle
+                    fs.Position = file.LastPosition;
+                    return;
+                }
+
+                // if we found a newline, process all the text up until that newline
+                if (foundNewLine)
+                {
+                    try
+                    {
+                        // strip out all carriage returns and ensure string starts/ends with newlines
+                        string foundText = encoding.GetString(bytes, 0, bytesEnd).Trim().Replace("\r", string.Empty);
+                        string processText = "\n" + foundText + "\n";
+                        OnProcessText(processText);
+                        ProcessText?.Invoke(processText);
+                    }
+                    finally
+                    {
+                        // set file position for next processing
+                        fs.Position = file.LastPosition + bytesEnd;
+                        file.LastPosition = fs.Position;
+                    }
                 }
             }
-
-            // check for binary file
-            if (!foundNewLine)
+            finally
             {
-                if (read > maxLineLength)
-                {
-                    // max line length bytes without a new line
-                    file.IsBinaryFile = true;
-                    Logger.Warn($"Aborting parsing log file {file.FileName}, file may be a binary file");
-                }
-                // reset position try again on next cycle
-                fs.Position = file.LastPosition;
-                return;
-            }
-
-            // if we found a newline, process all the text up until that newline
-            if (foundNewLine)
-            {
-                try
-                {
-                    // strip out all carriage returns and ensure string starts/ends with newlines
-                    string foundText = encoding.GetString(bytes, 0, bytesEnd).Trim().Replace("\r", string.Empty);
-                    string processText = "\n" + foundText + "\n";
-                    OnProcessText(processText);
-                    ProcessText?.Invoke(processText);
-                }
-                finally
-                {
-                    // set file position for next processing
-                    fs.Position = file.LastPosition + bytesEnd;
-                    file.LastPosition = fs.Position;
-                }
+                ArrayPool<byte>.Shared.Return(bytes);
             }
         }
     }

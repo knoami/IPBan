@@ -75,7 +75,7 @@ namespace DigitalRuby.IPBanCore
             catch (Exception ex)
             {
                 previousQueryString = null;
-                Logger.Warn("Failed to initialize windows event viewer, will retry initialization on next cycle: {0}", ex.Message);
+                Logger.Warn("Failed to initialize windows event viewer, will retry initialization on next cycle: {0}", ex);
             }
             return Task.CompletedTask;
         }
@@ -99,33 +99,40 @@ namespace DigitalRuby.IPBanCore
         /// Process event viewer XML
         /// </summary>
         /// <param name="xml">XML</param>
-        /// <returns>Log event or null if fail to parse/process</returns>
-        public IPAddressLogEvent ProcessEventViewerXml(string xml)
+        /// <returns>Log events or nothing if failure to parse</returns>
+        public IReadOnlyCollection<IPAddressLogEvent> ProcessEventViewerXml(string xml)
         {
             Logger.Trace("Processing event viewer xml: {0}", xml);
-
             XmlDocument doc = ParseXml(xml);
-            IPAddressLogEvent info = ExtractEventViewerXml(doc);
-            if (info != null && info.IPAddress != null &&
-                (info.Type == IPAddressEventType.FailedLogin ||
-                info.Type == IPAddressEventType.SuccessfulLogin))
+            var extractedEvents = ExtractEventViewerXml(doc);
+
+            foreach (var extractedEvent in extractedEvents)
             {
-                if (!FindSourceAndUserNameForInfo(info, doc))
+                if (extractedEvent is not null &&
+                    extractedEvent.IPAddress is not null &&
+                    (extractedEvent.Type == IPAddressEventType.FailedLogin ||
+                    extractedEvent.Type == IPAddressEventType.SuccessfulLogin))
                 {
-                    // bad ip address
-                    return null;
+                    if (!FindSourceAndUserNameForInfo(extractedEvent, doc))
+                    {
+                        // bad ip address
+                        continue;
+                    }
+                    else if (extractedEvent.Type == IPAddressEventType.SuccessfulLogin &&
+                        !string.IsNullOrWhiteSpace(extractedEvent.UserName) &&
+                        extractedEvent.UserName.Contains("anonymous", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.Debug("Ignoring anonymous login from windows event viewer: {0}", extractedEvent.UserName);
+                        extractedEvent.Type = IPAddressEventType.None;
+                    }
+
+                    Logger.Debug("Event viewer found: {0}, {1}, {2}, {3}", extractedEvent.IPAddress, extractedEvent.Source, extractedEvent.UserName, extractedEvent.Type);
                 }
-                else if (info.Type == IPAddressEventType.SuccessfulLogin &&
-                    !string.IsNullOrWhiteSpace(info.UserName) &&
-                    info.UserName.Contains("anonymous", StringComparison.OrdinalIgnoreCase))
-                {
-                    Logger.Debug("Ignoring anonymous login from windows event viewer: {0}", info.UserName);
-                    info.Type = IPAddressEventType.None;
-                }
-                service.AddIPAddressLogEvents(new IPAddressLogEvent[] { info });
-                Logger.Debug("Event viewer found: {0}, {1}, {2}, {3}", info.IPAddress, info.Source, info.UserName, info.Type);
             }
-            return info;
+
+            service.AddIPAddressLogEvents(extractedEvents);
+
+            return extractedEvents;
         }
 
         private static bool FindSourceAndUserNameForInfo(IPAddressLogEvent info, XmlDocument doc)
@@ -149,10 +156,7 @@ namespace DigitalRuby.IPBanCore
             if (string.IsNullOrWhiteSpace(info.UserName))
             {
                 XmlNode userNameNode = doc.SelectSingleNode("//Data[@Name='TargetUserName']");
-                if (userNameNode is null)
-                {
-                    userNameNode = doc.SelectSingleNode("//TargetUserName");
-                }
+                userNameNode ??= doc.SelectSingleNode("//TargetUserName");
 
                 // if we have a user name node, use it
                 if (userNameNode != null)
@@ -163,12 +167,13 @@ namespace DigitalRuby.IPBanCore
             return true;
         }
 
-        private IPAddressLogEvent ExtractEventViewerXml(XmlDocument doc)
+        private List<IPAddressLogEvent> ExtractEventViewerXml(XmlDocument doc)
         {
+            List<IPAddressLogEvent> events = [];
             XmlNode keywordsNode = doc.SelectSingleNode("//Keywords");
             if (keywordsNode is null)
             {
-                return null;
+                return [];
             }
 
             string keywordsText = keywordsNode.InnerText;
@@ -177,23 +182,24 @@ namespace DigitalRuby.IPBanCore
                 keywordsText = keywordsText[2..];
             }
             ulong keywordsULONG = ulong.Parse(keywordsText, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
-            IPAddressLogEvent info;
-            bool successfulLogin = false;
-            string userName = null;
-            string source = null;
-            string ipAddress = null;
-            DateTime? timestamp = null;
-            string logData = null;
-            int count = 1;
-            bool mismatch;
-            int failedLoginThreshold = 0;
-            LogLevel logLevel = LogLevel.Warning;
-            IPAddressNotificationFlags notificationFlags = IPAddressNotificationFlags.None;
 
             // we must match on keywords
-            foreach (EventViewerExpressionGroup group in service.Config.WindowsEventViewerGetGroupsMatchingKeywords(keywordsULONG))
+            var groupsMatched = service.Config.WindowsEventViewerGetGroupsMatchingKeywords(keywordsULONG);
+            foreach (EventViewerExpressionGroup group in groupsMatched)
             {
-                logLevel = group.LogLevel;
+                IPAddressLogEvent info;
+                bool successfulLogin = false;
+                string userName = null;
+                string source = null;
+                string ipAddress = null;
+                DateTime? timestamp = null;
+                string logData = null;
+                int count = 1;
+                bool mismatch;
+                int failedLoginThreshold = 0;
+                TimeSpan? failedLoginMinimumTimespan = null;
+                LogLevel logLevel = group.LogLevel;
+                IPAddressNotificationFlags notificationFlags = IPAddressNotificationFlags.None;
 
                 // we must match all the expressions, if even one does not match, null everything out and move on
                 foreach (EventViewerExpression expression in group.Expressions)
@@ -278,20 +284,16 @@ namespace DigitalRuby.IPBanCore
                     // use default source if we didn't find a source override
                     source ??= group.Source;
                     failedLoginThreshold = group.FailedLoginThreshold;
-                    break;
+                    failedLoginMinimumTimespan = group.MinimumTimeBetweenLoginAttemptsTimeSpan;
+
+                    IPAddressEventType eventType = (successfulLogin ? IPAddressEventType.SuccessfulLogin : IPAddressEventType.FailedLogin);
+                    events.Add(new IPAddressLogEvent(ipAddress, userName, source, count, eventType,
+                        timestamp is null ? default : timestamp.Value, false, string.Empty,
+                        failedLoginThreshold, logLevel, logData, notificationFlags, failedLoginMinimumTimespan));
                 }
             }
 
-            // if no ip, no match
-            if (ipAddress is null)
-            {
-                return null;
-            }
-
-            IPAddressEventType type = (successfulLogin ? IPAddressEventType.SuccessfulLogin : IPAddressEventType.FailedLogin);
-            return new IPAddressLogEvent(ipAddress, userName, source, count, type,
-                timestamp is null ? default : timestamp.Value, false, string.Empty,
-                failedLoginThreshold, logLevel, logData, notificationFlags);
+            return events;
         }
 
         private static XmlDocument ParseXml(string xml)
@@ -351,7 +353,12 @@ namespace DigitalRuby.IPBanCore
             StringBuilder queryString = new("<QueryList>");
             int id = 0;
             HashSet<string> logNames = new(System.Diagnostics.Eventing.Reader.EventLogSession.GlobalSession.GetLogNames());
-            foreach (EventViewerExpressionGroup group in service.Config.WindowsEventViewerExpressionsToBlock.Groups)
+            IEnumerable<EventViewerExpressionGroup> groups = service.Config.WindowsEventViewerExpressionsToBlock.Groups;
+            if (service.Config.WindowsEventViewerExpressionsToNotify?.Groups is not null)
+            {
+                groups = groups.Concat(service.Config.WindowsEventViewerExpressionsToNotify.Groups);
+            }
+            foreach (EventViewerExpressionGroup group in groups)
             {
                 if (!logNames.Contains(group.Path) ||
                     (Environment.OSVersion.Version.Major < group.MinimumWindowsMajorVersion ||
@@ -372,7 +379,7 @@ namespace DigitalRuby.IPBanCore
         private void SetupEventLogWatcher()
         {
             // note- this code will throw when Windows reboots, especially after patches
-            List<string> ignored = new();
+            List<string> ignored = [];
             string queryString = GetEventLogQueryString(ignored);
             if (queryString != null && queryString != previousQueryString)
             {

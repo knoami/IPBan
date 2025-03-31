@@ -87,29 +87,11 @@ namespace DigitalRuby.IPBanCore
         Task<bool> AllowIPAddresses(string ruleNamePrefix, IEnumerable<IPAddressRange> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default);
 
         /// <summary>
-        /// Checks if an ip address is blocked in the firewall
+        /// Checks if ip addresses are allowed or blocked in the firewall
         /// </summary>
-        /// <param name="ipAddress">IP Address</param>
-        /// <param name="ruleName">Found rule name if known by the firewall implementation if ip is blocked, otherwise null</param>
-        /// <param name="port">Optional port, -1 to not check the port. Not all firewalls will check the port.</param>
-        /// <returns>True if the ip address is blocked in the firewall, false otherwise</returns>
-        bool IsIPAddressBlocked(string ipAddress, out string ruleName, int port = -1);
-
-        /// <summary>
-        /// Checks if an ip address is blocked in the firewall
-        /// </summary>
-        /// <param name="ipAddress">IP Address</param>
-        /// <param name="port">Optional port, -1 to not check the port. Not all firewalls will check the port.</param>
-        /// <returns>True if the ip address is blocked in the firewall, false otherwise</returns>
-        bool IsIPAddressBlocked(string ipAddress, int port = -1) => IsIPAddressBlocked(ipAddress, out _, port);
-
-        /// <summary>
-        /// Checks if an ip address is explicitly allowed in the firewall
-        /// </summary>
-        /// <param name="ipAddress">IP Address</param>
-        /// <param name="port">Optional port, -1 to not check the port. Not all firewalls will check the port.</param>
-        /// <returns>True if explicitly allowed, false if not</returns>
-        bool IsIPAddressAllowed(string ipAddress, int port = -1);
+        /// <param name="ipAddresses">IP end points (remote ip, local port)</param>
+        /// <returns>List of blocked,allow,ruleName matching ip position in ipAddresses</returns>
+        IReadOnlyList<(bool blocked, bool allowed, string ruleName)> Query(IReadOnlyCollection<System.Net.IPEndPoint> ipAddresses);
 
         /// <summary>
         /// Get all rules with the specified rule name prefix
@@ -128,14 +110,16 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Gets all banned ip addresses from BlockIPAddresses calls using the built in block rule
         /// </summary>
+        /// <param name="ruleNamePrefix">Rule name prefix or null for all</param>
         /// <returns>IEnumerable of all ip addresses</returns>
-        IEnumerable<string> EnumerateBannedIPAddresses();
+        IEnumerable<string> EnumerateBannedIPAddresses(string ruleNamePrefix = null);
 
         /// <summary>
         /// Gets all explicitly allowed ip addresses
         /// </summary>
+        /// <param name="ruleNamePrefix">Rule name prefix or null for all</param>
         /// <returns>IEnumerable of all ip addresses</returns>
-        IEnumerable<string> EnumerateAllowedIPAddresses();
+        IEnumerable<string> EnumerateAllowedIPAddresses(string ruleNamePrefix = null);
 
         /// <summary>
         /// Gets all ip addresses for a rule prefix
@@ -143,6 +127,13 @@ namespace DigitalRuby.IPBanCore
         /// <param name="ruleNamePrefix">Rule prefix</param>
         /// <returns>IEnumerable of all ip addreses</returns>
         IEnumerable<IPAddressRange> EnumerateIPAddresses(string ruleNamePrefix = null);
+
+        /// <summary>
+        /// Get ports for a rule.
+        /// </summary>
+        /// <param name="ruleName">Rule name</param>
+        /// <returns>Ports or null if no rule found</returns>
+        string GetPorts(string ruleName);
 
         /// <summary>
         /// Send a packet event. This method should not throw an exception.
@@ -161,6 +152,16 @@ namespace DigitalRuby.IPBanCore
         string RulePrefix { get; }
 
         /// <summary>
+        /// Allow rule prefix
+        /// </summary>
+        string AllowRulePrefix { get; }
+
+        /// <summary>
+        /// Block rule prefix
+        /// </summary>
+        string BlockRulePrefix { get; }
+
+        /// <summary>
         /// Fires when a packet is blocked or allowed. Not all firewall implementations will trigger this event.
         /// </summary>
         event PacketEventDelegate PacketEvent;
@@ -171,96 +172,6 @@ namespace DigitalRuby.IPBanCore
     /// </summary>
     /// <param name="packets">Packet events</param>
     public delegate void PacketEventDelegate(IEnumerable<PacketEvent> packets);
-
-    /// <summary>
-    /// Packet event
-    /// </summary>
-    public class PacketEvent
-    {
-        /// <summary>
-        /// Timestamp
-        /// </summary>
-        [System.Text.Json.Serialization.JsonConverter(typeof(DateTimeOffsetJsonConverter))]
-        public DateTimeOffset Timestamp { get; init; }
-
-        /// <summary>
-        /// FQDN of machine sending the event
-        /// </summary>
-        public string FQDN { get; init; }
-
-        /// <summary>
-        /// Source ip address of the packet
-        /// </summary>
-        public string LocalIpAddress { get; init; }
-
-        /// <summary>
-        /// Source port of the packet or 0 if unknown/not applicable
-        /// </summary>
-        public int LocalPort { get; init; }
-
-        /// <summary>
-        /// Remote ISP (if known)
-        /// </summary>
-        public string RemoteISP { get; set; }
-
-        /// <summary>
-        /// Remote country (if known)
-        /// </summary>
-        public string RemoteCountry { get; set; }
-
-        /// <summary>
-        /// Remote region (if known)
-        /// </summary>
-        public string RemoteRegion { get; set; }
-
-        /// <summary>
-        /// Remote city (if known)
-        /// </summary>
-        public string RemoteCity { get; set; }
-
-        /// <summary>
-        /// Destination ip address of the packet
-        /// </summary>
-        public string RemoteIpAddress { get; init; }
-
-        /// <summary>
-        /// Destination port of the packet or 0 if unknown/not applicable
-        /// </summary>
-        public int RemotePort { get; init; }
-
-        /// <summary>
-        /// Rule name if known, otherwise null
-        /// </summary>
-        public string RuleName { get; init; }
-
-        /// <summary>
-        /// RFC 1700 protocol
-        /// </summary>
-        public System.Net.Sockets.ProtocolType Protocol { get; init; }
-
-        /// <summary>
-        /// Whether the packet was allowed (true) or blocked (false)
-        /// </summary>
-        public bool Allowed { get; init; }
-
-        /// <summary>
-        /// Whether the packet is outgoing (true) or incoming (false)
-        /// </summary>
-        public bool Outbound { get; init; }
-
-        /// <summary>
-        /// Header row to match ToString method, including newline character(s).
-        /// </summary>
-        public static string Header { get; } = "Timestamp|FQDN|RuleName|Protocol|Direction|LocalIpAddress|LocalPort|RemoteIpAddress|RemotePort|RemoteISP|RemoteCountry|RemoteRegion|RemoteCity" + Environment.NewLine;
-
-        /// <inheritdoc />
-        public override string ToString()
-        {
-            var dir = Outbound ? "outbound" : "inbound";
-            var protocol = Protocol.ToString();
-            return $"{Timestamp:s}Z|{FQDN}|{RuleName}|{protocol}|{dir}|{LocalIpAddress}|{LocalPort}|{RemoteIpAddress}|{RemotePort}|{RemoteISP}|{RemoteCountry}|{RemoteRegion}|{RemoteCity}";
-        }
-    }
 
     /// <summary>
     /// Represents an ip address delta operation
@@ -280,13 +191,13 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// Whether this is an ipv4 (true) or ipv6 (false)
         /// </summary>
-        public bool IsIPV4 => System.Net.IPAddress.TryParse(IPAddress, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
+        public readonly bool IsIPV4 => System.Net.IPAddress.TryParse(IPAddress, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
 
         /// <summary>
         /// ToString
         /// </summary>
         /// <returns>String</returns>
-        public override string ToString()
+        public override readonly string ToString()
         {
             return $"{IPAddress} added = {Added}";
         }

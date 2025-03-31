@@ -39,20 +39,21 @@ namespace DigitalRuby.IPBanCore
 {
     public partial class IPBanService
     {
-        private record FirewallTask(Delegate TaskToRun, object State, Type StateType, CancellationToken CancelToken);
+        private record FirewallTask(Delegate TaskToRun, object State, Type StateType, string Name, CancellationToken CancelToken);
 
-        private static readonly char[] userNamePrefixChars = new[] { ',', '\\' };
+        private static readonly char[] userNamePrefixChars = [',', '\\'];
+        private static readonly TimeSpan successMinTimeOverride = TimeSpan.FromSeconds(15.0);
 
         // batch failed logins every cycle
-        private readonly List<IPAddressLogEvent> pendingFailedLogins = new();
-        private readonly List<IPAddressLogEvent> pendingSuccessfulLogins = new();
-        private readonly List<IPAddressLogEvent> pendingLogEvents = new();
-        private readonly HashSet<IUpdater> updaters = new();
+        private readonly List<IPAddressLogEvent> pendingFailedLogins = [];
+        private readonly List<IPAddressLogEvent> pendingSuccessfulLogins = [];
+        private readonly List<IPAddressLogEvent> pendingLogEvents = [];
+        private readonly HashSet<IUpdater> updaters = [];
         private readonly SemaphoreSlim stopEvent = new(0, 1);
         private readonly ConcurrentQueue<FirewallTask> firewallTasks = new();
         private readonly SemaphoreSlim cycleLock = new(1, 1);
         private readonly IReadOnlyCollection<(string name, Func<CancellationToken, Task> action)> cycleActions;
-        
+
         private bool firewallNeedsBlockedIPAddressesUpdate;
         private IPBanDB ipDB;
         private bool whitelistChanged;
@@ -106,7 +107,7 @@ namespace DigitalRuby.IPBanCore
         /// If an api key is specified in the IPThreatApiKey app setting
         /// </summary>
         public IPBanIPThreatUploader IPThreatUploader { get; set; }
-    
+
         /// <summary>
         /// Extra handler for banned ip addresses (optional)
         /// </summary>
@@ -131,6 +132,11 @@ namespace DigitalRuby.IPBanCore
         /// Blacklist
         /// </summary>
         public IIPBanFilter Blacklist => Config.BlacklistFilter;
+
+        /// <summary>
+        /// Execute process for ip address events
+        /// </summary>
+        public IIPAddressProcessExecutor ProcessExecutor { get; set; } = new IPAddressProcessExecutor();
 
         /// <summary>
         /// Config changed event
@@ -227,11 +233,12 @@ namespace DigitalRuby.IPBanCore
         /// - Windows Firewall (Windows only)<br/>
         /// - FirewallD (Linux only)<br/>
         /// </summary>
-        public HashSet<Type> FirewallTypes { get; } = new()
-        {
+        public HashSet<Type> FirewallTypes { get; } =
+        [
             typeof(IPBanWindowsFirewall),
-            typeof(IPBanLinuxFirewallD)
-        };
+            typeof(IPBanLinuxFirewallD),
+            typeof(IPBanLinuxFirewallIPTables)
+        ];
 
         /// <summary>
         /// Cancel token
@@ -282,7 +289,7 @@ namespace DigitalRuby.IPBanCore
             {
                 lock (pendingLogEvents)
                 {
-                    return pendingLogEvents.ToArray();
+                    return [.. pendingLogEvents];
                 }
             }
         }

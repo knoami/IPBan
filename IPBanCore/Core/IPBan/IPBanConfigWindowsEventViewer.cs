@@ -26,6 +26,7 @@ SOFTWARE.
 
 using Newtonsoft.Json;
 
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
@@ -89,6 +90,20 @@ namespace DigitalRuby.IPBanCore
         [System.Text.Json.Serialization.JsonIgnore]
         [Newtonsoft.Json.JsonIgnore]
         public bool XPathIsOptional { get; private set; }
+
+        /// <inheritdoc />
+        public override bool Equals(object obj)
+        {
+            return obj is EventViewerExpression expression &&
+                XPath == expression.XPath &&
+                Regex?.ToString() == expression.Regex?.ToString();
+        }
+
+        /// <inheritdoc />
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(XPath, Regex.ToString());
+        }
     }
 
     /// <summary>
@@ -159,6 +174,24 @@ namespace DigitalRuby.IPBanCore
                 }
                 KeywordsULONG = ulong.Parse(value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
             }
+        }
+
+        /// <inheritdoc />
+        public override bool Equals(object obj)
+        {
+            return obj is EventViewerExpressionGroup group &&
+                Source == group.Source &&
+                Keywords == group.Keywords &&
+                MinimumWindowsMajorVersion == group.MinimumWindowsMajorVersion &&
+                MinimumWindowsMinorVersion == group.MinimumWindowsMinorVersion &&
+                NotifyOnly == group.NotifyOnly &&
+                Array.Equals(Expressions, group.Expressions);
+        }
+
+        /// <inheritdoc />
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Source, Keywords, MinimumWindowsMajorVersion, MinimumWindowsMinorVersion, NotifyOnly);
         }
 
         /// <summary>
@@ -234,7 +267,7 @@ namespace DigitalRuby.IPBanCore
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         [XmlArray("Expressions")]
         [XmlArrayItem("Expression")]
-        public List<EventViewerExpression> Expressions { get; set; } = new List<EventViewerExpression>();
+        public List<EventViewerExpression> Expressions { get; set; } = [];
 
         /// <summary>
         /// If using plain text expressions, this will be set and needs conversion. Leave null if you are using Expressions directly.
@@ -257,6 +290,26 @@ namespace DigitalRuby.IPBanCore
         [LocalizedDisplayName(nameof(IPBanResources.FailedLoginThreshold))]
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public int FailedLoginThreshold { get; set; }
+
+        /// <summary>
+        /// Override minimum time between logins
+        /// </summary>
+        [DisplayFormat(ConvertEmptyStringToNull = false)]
+        [LocalizedDisplayName(nameof(IPBanResources.MinimumTimeBetweenFailedLoginAttempts))]
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string MinimumTimeBetweenLoginAttempts
+        {
+            get => MinimumTimeBetweenLoginAttemptsTimeSpan?.ToString();
+            set => MinimumTimeBetweenLoginAttemptsTimeSpan = value.ParseTimeSpan();
+        }
+
+        /// <summary>
+        /// MinimumTimeBetweenLoginAttempts TimeSpan value, or null if none.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore]
+        [XmlIgnore]
+        public TimeSpan? MinimumTimeBetweenLoginAttemptsTimeSpan { get; set; }
 
         /// <summary>
         /// Log level for event
@@ -287,7 +340,20 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         [XmlArray("Groups")]
         [XmlArrayItem("Group")]
-        public List<EventViewerExpressionGroup> Groups { get; set; } = new List<EventViewerExpressionGroup>();
+        public List<EventViewerExpressionGroup> Groups { get; set; } = [];
+
+        /// <inheritdoc />
+        public override bool Equals(object obj)
+        {
+            return obj is EventViewerExpressions expressions &&
+                EqualityComparer<List<EventViewerExpressionGroup>>.Default.Equals(Groups, expressions.Groups);
+        }
+
+        /// <inheritdoc />
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Groups);
+        }
     }
 
     /// <summary>

@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace DigitalRuby.IPBanCore
@@ -30,22 +31,22 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Represents a range of ports
     /// </summary>
-    public struct PortRange
+    public struct PortRange : IComparable<PortRange>
     {
         /// <summary>
         /// Min port, inclusive
         /// </summary>
-        public int MinPort { get; }
+        public int MinPort { get; internal set; }
 
         /// <summary>
         /// Max port, inclusive
         /// </summary>
-        public int MaxPort { get; }
+        public int MaxPort { get; internal set; }
 
         /// <summary>
         /// Return whether the range is valid
         /// </summary>
-        public bool IsValid { get { return MinPort <= MaxPort && MinPort >= 0 && MinPort <= 65535 && MaxPort >= 0 && MaxPort <= 65535; } }
+        public readonly bool IsValid { get { return MinPort <= MaxPort && MinPort >= 0 && MinPort <= 65535 && MaxPort >= 0 && MaxPort <= 65535; } }
 
         /// <summary>
         /// Constructor
@@ -67,11 +68,27 @@ namespace DigitalRuby.IPBanCore
             MaxPort = maxPort;
         }
 
+        /// <inheritdoc />
+        public override readonly bool Equals(object portRange)
+        {
+            if (portRange is not PortRange portRangeObj)
+            {
+                return false;
+            }
+            return MinPort == portRangeObj.MinPort && MaxPort == portRangeObj.MaxPort;
+        }
+
+        /// <inheritdoc />
+        public override readonly int GetHashCode()
+        {
+            return MinPort.GetHashCode() ^ MaxPort.GetHashCode();
+        }
+
         /// <summary>
         /// ToString
         /// </summary>
         /// <returns>String or null if invalid range</returns>
-        public override string ToString()
+        public override readonly string ToString()
         {
             if (MinPort > 65535 || MaxPort > 65535 || MinPort < 0 || MaxPort < 0 || MaxPort < MinPort)
             {
@@ -99,7 +116,7 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         /// <param name="port">Port</param>
         /// <returns>True if contains the port, false otherwise</returns>
-        public bool Contains(int port)
+        public readonly bool Contains(int port)
         {
             return port >= MinPort && port <= MaxPort;
         }
@@ -141,6 +158,52 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
+        /// Parse a list of port ranges (comma separated)
+        /// </summary>
+        /// <param name="ranges">Port ranges string</param>
+        /// <returns>Parsed port ranges or empty array if parse fail</returns>
+        public static PortRange[] ParseRanges(string ranges)
+        {
+            if (string.IsNullOrWhiteSpace(ranges))
+            {
+                return [];
+            }
+            string[] pieces = ranges.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            List<PortRange> parsedRanges = [];
+            for (int i = 0; i < pieces.Length; i++)
+            {
+                var parsedPort = Parse(pieces[i]);
+                if (parsedPort.MinPort >= 0)
+                {
+                    parsedRanges.Add(parsedPort);
+                }
+            }
+            return parsedRanges.ToArray();
+        }
+
+        /// <inheritdoc />
+        public readonly int CompareTo(PortRange other)
+        {
+            if (MinPort < other.MinPort)
+            {
+                return -1;
+            }
+            else if (MinPort > other.MinPort)
+            {
+                return 1;
+            }
+            else if (MaxPort < other.MaxPort)
+            {
+                return -1;
+            }
+            else if (MaxPort > other.MaxPort)
+            {
+                return 1;
+            }
+            return 0;
+        }
+
+        /// <summary>
         /// Parse port range from string implicitly. If parsing fails, min port will be -1.
         /// </summary>
         /// <param name="s">Port range string</param>
@@ -148,6 +211,42 @@ namespace DigitalRuby.IPBanCore
         public static implicit operator PortRange(string s)
         {
             return Parse(s);
+        }
+
+        /// <inheritdoc />
+        public static bool operator ==(PortRange left, PortRange right)
+        {
+            return left.Equals(right);
+        }
+
+        /// <inheritdoc />
+        public static bool operator !=(PortRange left, PortRange right)
+        {
+            return !(left == right);
+        }
+
+        /// <inheritdoc />
+        public static bool operator <(PortRange left, PortRange right)
+        {
+            return left.CompareTo(right) < 0;
+        }
+
+        /// <inheritdoc />
+        public static bool operator <=(PortRange left, PortRange right)
+        {
+            return left.CompareTo(right) <= 0;
+        }
+
+        /// <inheritdoc />
+        public static bool operator >(PortRange left, PortRange right)
+        {
+            return left.CompareTo(right) > 0;
+        }
+
+        /// <inheritdoc />
+        public static bool operator >=(PortRange left, PortRange right)
+        {
+            return left.CompareTo(right) >= 0;
         }
     }
 }

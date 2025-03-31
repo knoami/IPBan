@@ -24,9 +24,8 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
-using System.IO.Compression;
 using System.IO;
-using System.Net;
+using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
@@ -106,15 +105,7 @@ namespace DigitalRuby.IPBanCore
             {
                 Interlocked.Increment(ref liveRequestCount);
             }
-            Assembly versionAssembly = Assembly.GetEntryAssembly();
-            if (versionAssembly is null)
-            {
-                versionAssembly = Assembly.GetAssembly(typeof(IPBanService));
-                if (versionAssembly is null)
-                {
-                    versionAssembly = GetType().Assembly;
-                }
-            }
+            Assembly versionAssembly = Assembly.GetEntryAssembly() ?? Assembly.GetAssembly(typeof(IPBanService)) ?? GetType().Assembly;
             HttpRequestMessage msg = new()
             {
                 RequestUri = uri

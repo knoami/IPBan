@@ -27,13 +27,11 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
@@ -48,7 +46,7 @@ namespace DigitalRuby.IPBanCore
         {
             if (MultiThreaded)
             {
-                System.Threading.Tasks.Task.Run(action);
+                System.Threading.Tasks.Task.Run(action).GetAwaiter();
             }
             else
             {
@@ -107,7 +105,7 @@ namespace DigitalRuby.IPBanCore
                     await LoadFirewall(oldConfig);
 
                     // process firewall changes from configuration
-                    await HandleFirewallConfigChange();                    
+                    await HandleFirewallConfigChange();
                     ParseAndAddUriFirewallRules();
                 }
             }
@@ -187,7 +185,7 @@ namespace DigitalRuby.IPBanCore
                     if (ipAddress.IsInternal())
                     {
                         // try querying through a web service
-                        var bytes = await RequestMaker.MakeRequestAsync(new Uri("https://api.ipban.com/myip"));
+                        var bytes = await RequestMaker.MakeRequestAsync(new Uri("https://api.ipban.com/myip"), cancelToken: cancelToken);
                         var ipString = Encoding.UTF8.GetString(bytes);
                         if (IPAddress.TryParse(ipString, out var ipObj))
                         {
@@ -212,7 +210,7 @@ namespace DigitalRuby.IPBanCore
 
         private async Task ProcessPendingFailedLogins(IReadOnlyList<IPAddressLogEvent> ipAddresses, CancellationToken cancelToken)
         {
-            List<IPAddressLogEvent> bannedIpAddresses = new();
+            List<IPAddressLogEvent> bannedIpAddresses = [];
             object transaction = BeginTransaction();
             try
             {
@@ -240,22 +238,17 @@ namespace DigitalRuby.IPBanCore
                         string userName = failedLogin.UserName;
                         string source = failedLogin.Source;
                         string logData = failedLogin.LogData ?? string.Empty;
-                        if (IsWhitelisted(ipAddress))
+                        if (IsWhitelisted(ipAddress, out var reason))
                         {
-                            Logger.Log(failedLogin.LogLevel, "Login failure, ignoring whitelisted ip address {0}, {1}, {2}", ipAddress, userName, source);
-
-                            // if delegate is not null and not an external event, send the event to the delegate
-                            if (IPBanDelegate != null && !failedLogin.External)
-                            {
-                                await IPBanDelegate.LoginAttemptFailed(ipAddress, source, userName, MachineGuid, OSName, OSVersion, 0, UtcNow, failedLogin.NotificationFlags);
-                            }
+                            Logger.Log(failedLogin.LogLevel, "Login failure, ignoring whitelisted ip address {0}, {1}, {2}, reason: {3}",
+                                ipAddress, userName, source, reason);
                         }
                         else
                         {
                             int maxFailedLoginAttempts;
-                            bool hasUserNameWhitelist = false;
-                            bool userNameWhitelisted = Config.IsWhitelisted(userName) ||
-                                Config.IsUserNameWithinMaximumEditDistanceOfUserNameWhitelist(userName, out hasUserNameWhitelist);
+                            bool userNameWhitelisted = Config.IsUserNameWithinMaximumEditDistanceOfUserNameWhitelist(userName, out bool hasUserNameWhitelistEditDistance) ||
+                                Config.IsWhitelisted(userName, out _) ||
+                                Config.UserNameWhitelistedRegex(userName);
                             if (userNameWhitelisted)
                             {
                                 maxFailedLoginAttempts = Config.FailedLoginAttemptsBeforeBanUserNameWhitelist;
@@ -269,24 +262,24 @@ namespace DigitalRuby.IPBanCore
                             DateTime now = failedLogin.Timestamp;
 
                             // check for the target user name for additional blacklisting checks
-                            bool ipBlacklisted = Config.BlacklistFilter.IsFiltered(ipAddress);
-                            bool userBlacklisted = (!ipBlacklisted && Config.BlacklistFilter.IsFiltered(userName));
-                            bool userFailsWhitelistRegex = (!userBlacklisted && Config.UserNameFailsUserNameWhitelistRegex(userName));
-                            bool editDistanceBlacklisted = (!ipBlacklisted && !userBlacklisted && !userFailsWhitelistRegex &&
-                                (hasUserNameWhitelist && !userNameWhitelisted));
-                            bool configBlacklisted = ipBlacklisted || userBlacklisted || userFailsWhitelistRegex || editDistanceBlacklisted;
+                            bool ipBlacklisted = Config.BlacklistFilter.IsFiltered(ipAddress, out reason);
+                            bool userBlacklisted = (!ipBlacklisted && Config.BlacklistFilter.IsFiltered(userName, out reason));
+                            bool editDistanceBlacklisted = (!ipBlacklisted && !userBlacklisted && hasUserNameWhitelistEditDistance && !userNameWhitelisted);
+                            bool userNameMismatchBlacklisted = (!userNameWhitelisted && (hasUserNameWhitelistEditDistance || !string.IsNullOrWhiteSpace(Config.UserNameWhitelistRegex)));
+                            bool configBlacklisted = ipBlacklisted || userBlacklisted || editDistanceBlacklisted || userNameMismatchBlacklisted;
 
                             // if the event came in with a count of 0 that means it is an automatic ban
                             int incrementCount = (failedLogin.Count < 1 ? maxFailedLoginAttempts : failedLogin.Count);
                             int newCount = ipDB.IncrementFailedLoginCount(ipAddress, userName, source, UtcNow, incrementCount, transaction);
 
-                            Logger.Log(failedLogin.LogLevel, now, "Login failure: {0}, {1}, {2}, {3}, {4}", ipAddress, userName, source, newCount, logData);
+                            Logger.Log(failedLogin.LogLevel, now, "Login failure: {0}, {1}, {2}, {3}, {4}, reason: {5}",
+                                ipAddress, userName, source, newCount, logData, reason);
 
                             // if the ip address is black listed or the ip address has reached the maximum failed login attempts before ban, ban the ip address
                             if (configBlacklisted || newCount >= maxFailedLoginAttempts)
                             {
-                                Logger.Info("IP blacklisted: {0}, user name blacklisted: {1}, fails user name white list regex: {2}, user name edit distance blacklisted: {3}",
-                                    ipBlacklisted, userBlacklisted, userFailsWhitelistRegex, editDistanceBlacklisted);
+                                Logger.Info("IP blacklisted: {0}, user name blacklisted: {1}, user name edit distance blacklisted: {2}, user name whitelisted: {3}",
+                                    ipBlacklisted, userBlacklisted, editDistanceBlacklisted, userNameWhitelisted);
 
                                 if (ipDB.TryGetIPAddressState(ipAddress, out IPBanDB.IPAddressState? state, transaction) &&
                                     (state.Value == IPBanDB.IPAddressState.Active || state.Value == IPBanDB.IPAddressState.AddPending))
@@ -330,7 +323,7 @@ namespace DigitalRuby.IPBanCore
                 }
                 CommitTransaction(transaction);
                 IPThreatUploader.AddIPAddressLogEvents(bannedIpAddresses);
-                ExecuteExternalProcessForIPAddresses(Config.ProcessToRunOnBan, bannedIpAddresses);
+                ExecuteProcess(Config.ProcessToRunOnBan, bannedIpAddresses, AppName, RunTask);
             }
             catch (Exception ex)
             {
@@ -339,9 +332,24 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private Task ProcessPendingSuccessfulLogins(IEnumerable<IPAddressLogEvent> ipAddresses, CancellationToken cancelToken)
+        private void ExecuteProcess(string processToRunOnBan, IReadOnlyCollection<IPAddressLogEvent> ipAddresses,
+            string appName, Action<Action> runTask)
         {
-            List<IPAddressLogEvent> finalList = new();
+            // verify inputs
+            if (ipAddresses is not null && runTask is not null && !string.IsNullOrWhiteSpace(processToRunOnBan))
+            {
+                // filter external ips
+                IPAddressLogEvent[] ipAddressesArray = ipAddresses.Where(i => !string.IsNullOrWhiteSpace(i.IPAddress) && !i.External).ToArray();
+                if (ipAddressesArray.Length != 0)
+                {
+                    ProcessExecutor.Execute(processToRunOnBan, ipAddressesArray, appName, runTask);
+                }
+            }
+        }
+
+        private Task ProcessPendingSuccessfulLogins(IReadOnlyCollection<IPAddressLogEvent> ipAddresses, CancellationToken cancelToken)
+        {
+            List<IPAddressLogEvent> finalList = [];
             foreach (IPAddressLogEvent info in ipAddresses)
             {
                 // if we have a valid ip that is not internal, process the successful login
@@ -359,6 +367,7 @@ namespace DigitalRuby.IPBanCore
                     }
                 }
             }
+            ExecuteProcess(Config.ProcessToRunOnSuccessfulLogin, ipAddresses, AppName, RunTask);
             if (IPBanDelegate != null)
             {
                 return Task.Run(() =>
@@ -375,7 +384,7 @@ namespace DigitalRuby.IPBanCore
                     {
                         Logger.Error(ex);
                     }
-                });
+                }, cancelToken);
             }
 
             return Task.CompletedTask;
@@ -395,7 +404,8 @@ namespace DigitalRuby.IPBanCore
 
         private void AddBannedIPAddress(string ipAddress, string source, string userName,
             List<IPAddressLogEvent> bannedIpAddresses, DateTime startBanDate, bool configBlacklisted,
-            int counter, string extraInfo, object transaction, bool external, string logData, IPAddressNotificationFlags notificationFlags)
+            int counter, string extraInfo, object transaction, bool external, string logData,
+            IPAddressNotificationFlags notificationFlags)
         {
             if (!System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipAddressObj))
             {
@@ -408,10 +418,10 @@ namespace DigitalRuby.IPBanCore
                 Logger.Info("Ignoring ban request for internal ip address {0} because ProcessInternalIPAddresses is false", ipAddress);
                 return;
             }
-            else if (IsWhitelisted(ipAddress))
+            else if (IsWhitelisted(ipAddress, out var reason))
             {
                 // never ban whitelisted ip addresses
-                Logger.Info("Ignoring ban request for whitelisted ip address {0}", ipAddress);
+                Logger.Info("Ignoring ban request for whitelisted ip address {0}, reason: {1}", ipAddress, reason);
                 return;
             }
 
@@ -426,6 +436,8 @@ namespace DigitalRuby.IPBanCore
                 ipDB.TryGetIPAddress(ipAddress, out IPBanDB.IPAddressEntry ipEntry, transaction) &&
                 ipEntry.BanStartDate != null && ipEntry.BanEndDate != null)
             {
+                Logger.Debug("Multiple ban times detected, detecting if ip {0} can move to next ban time slot.", ipAddress);
+
                 // find the next ban time in the array
                 banTime = ipEntry.BanEndDate.Value - ipEntry.BanStartDate.Value;
                 for (int i = 0; i < banTimes.Length; i++)
@@ -440,6 +452,7 @@ namespace DigitalRuby.IPBanCore
                     }
                 }
             }
+
             int adjustedCount = (counter <= 0 ? Config.FailedLoginAttemptsBeforeBan : counter);
             bannedIpAddresses?.Add(new IPAddressLogEvent(ipAddress, userName, source, adjustedCount,
                 IPAddressEventType.Blocked, logData: logData, notificationFlags: notificationFlags));
@@ -482,75 +495,6 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        /// <summary>
-        /// Execute unban process in background
-        /// </summary>
-        /// <param name="programToRun">Program to run</param>
-        /// <param name="ipAddresses">IP addresses, should be a non-shared collection</param>
-        private void ExecuteExternalProcessForIPAddresses(string programToRun,
-            IReadOnlyCollection<IPAddressLogEvent> ipAddresses)
-        {
-            if (ipAddresses is null || ipAddresses.Count == 0 || string.IsNullOrWhiteSpace(programToRun))
-            {
-                return;
-            }
-            foreach (string process in programToRun.Split('\n'))
-            {
-                string[] pieces = process.Trim().Split('|', StringSplitOptions.TrimEntries);
-                if (pieces.Length != 2)
-                {
-                    throw new ArgumentException("Invalid config option for process to run: " + programToRun +
-                        " -- should be two strings, | delimited with program and arguments.");
-                }
-
-                RunTask(() =>
-                {
-                    string programFullPath = Path.GetFullPath(pieces[0]);
-                    string programArgs = pieces[1];
-
-                    foreach (var ipAddress in ipAddresses)
-                    {
-                        if (string.IsNullOrWhiteSpace(ipAddress?.IPAddress))
-                        {
-                            continue;
-                        }
-
-                        // log data cleanup
-                        var logData = (ipAddress.LogData ?? string.Empty)
-                            .Replace("\"", string.Empty)
-                            .Replace("'", string.Empty)
-                            .Replace("\\", "/")
-                            .Replace("\n", " ")
-                            .Replace("\r", " ")
-                            .Replace("\t", " ")
-                            .Trim();
-
-                        string replacedArgs = programArgs.Replace("###IPADDRESS###", ipAddress.IPAddress)
-                            .Replace("###SOURCE###", ipAddress.Source ?? string.Empty)
-                            .Replace("###USERNAME###", ipAddress.UserName ?? string.Empty)
-                            .Replace("###APP###", AppName)
-                            .Replace("###COUNT###", ipAddress.Count.ToStringInvariant())
-                            .Replace("###LOG###", logData);
-
-                        try
-                        {
-                            ProcessStartInfo psi = new()
-                            {
-                                FileName = programFullPath,
-                                WorkingDirectory = Path.GetDirectoryName(programFullPath),
-                                Arguments = replacedArgs
-                            };
-                            using Process p = Process.Start(psi);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Error(ex, "Failed to execute process {0} {1}", programFullPath, replacedArgs);
-                        }
-                    }
-                });
-            }
-        }
-
         private async Task UpdateBannedIPAddressesOnStart()
         {
             if (updateBannedIPAddressesOnStartCalled)
@@ -562,10 +506,12 @@ namespace DigitalRuby.IPBanCore
             if (Config.ClearBannedIPAddressesOnRestart)
             {
                 Logger.Warn("Clearing all banned ip addresses on start because ClearBannedIPAddressesOnRestart is set");
-                ExecuteExternalProcessForIPAddresses(Config.ProcessToRunOnUnban,
+                ExecuteProcess(Config.ProcessToRunOnUnban,
                     Firewall.EnumerateBannedIPAddresses()
                     .Select(i => new IPAddressLogEvent(i, string.Empty, string.Empty, 0, IPAddressEventType.Unblocked))
-                    .ToArray());
+                    .ToArray(),
+                    AppName,
+                    RunTask);
                 Firewall.Truncate();
                 ipDB.Truncate(true);
             }
@@ -576,8 +522,9 @@ namespace DigitalRuby.IPBanCore
 
                 Logger.Warn("Syncing firewall and {0} database...", IPBanDB.FileName);
 
-                // bring all firewall ip into the database, if they already exist they will be ignored
-                ipDB.SetBannedIPAddresses(Firewall.EnumerateBannedIPAddresses().Select(i => new Tuple<string, DateTime, DateTime>(i, now, banEnd)), UtcNow);
+                // bring all blocked firewall ip into the database from the standard block rule, if they already exist they will be ignored
+                ipDB.SetBannedIPAddresses(Firewall.EnumerateBannedIPAddresses(Firewall.BlockRulePrefix)
+                    .Select(i => new Tuple<string, DateTime, DateTime>(i, now, banEnd)), UtcNow);
 
                 // remove any rows where the ip address was going to be removed
                 ipDB.DeletePendingRemoveIPAddresses();
@@ -596,7 +543,12 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private async Task LoadFirewall(IPBanConfig oldConfig)
+        /// <summary>
+        /// Load firewall
+        /// </summary>
+        /// <param name="oldConfig">Old config</param>
+        /// <returns>Task</returns>
+        protected virtual async Task LoadFirewall(IPBanConfig oldConfig)
         {
             IIPBanFirewall existing = Firewall;
 
@@ -692,18 +644,18 @@ namespace DigitalRuby.IPBanCore
                 whitelistChanged = false;
                 foreach (IPBanDB.IPAddressEntry ipAddress in ipDB.EnumerateIPAddresses(null, null, transaction))
                 {
-                    if (IsWhitelisted(ipAddress.IPAddress))
+                    if (IsWhitelisted(ipAddress.IPAddress, out var reason))
                     {
                         if (ipAddress.State == IPBanDB.IPAddressState.Active)
                         {
-                            Logger.Warn("Un-banning whitelisted ip address {0}", ipAddress.IPAddress);
+                            Logger.Warn("Un-banning whitelisted ip address {0}, reason: {1}", ipAddress.IPAddress, reason);
                             unbanList?.Add(ipAddress.IPAddress);
-                            DB.SetIPAddressesState(new string[] { ipAddress.IPAddress }, IPBanDB.IPAddressState.RemovePending, transaction);
+                            DB.SetIPAddressesState([ipAddress.IPAddress], IPBanDB.IPAddressState.RemovePending, transaction);
                             firewallNeedsBlockedIPAddressesUpdate = true;
                         }
                         else
                         {
-                            Logger.Warn("Forgetting whitelisted ip address {0}", ipAddress.IPAddress);
+                            Logger.Warn("Forgetting whitelisted ip address {0}, reason: {1}", ipAddress.IPAddress, reason);
                             DB.DeleteIPAddress(ipAddress.IPAddress, transaction);
                         }
                     }
@@ -719,9 +671,9 @@ namespace DigitalRuby.IPBanCore
             foreach (IPBanDB.IPAddressEntry ipAddress in ipDB.EnumerateIPAddresses(failLoginCutOff, banCutOff, transaction))
             {
                 // never un-ban a blacklisted entry
-                if (Config.BlacklistFilter.IsFiltered(ipAddress.IPAddress))
+                if (Config.BlacklistFilter.IsFiltered(ipAddress.IPAddress, out var reason))
                 {
-                    Logger.Debug("Not unbanning blacklisted ip {0}", ipAddress.IPAddress);
+                    Logger.Debug("Not unbanning blacklisted ip {0}, reason: {1}", ipAddress.IPAddress, reason);
                     continue;
                 }
                 // if ban duration has expired, un-ban, check this first as these must trigger a firewall update
@@ -733,7 +685,6 @@ namespace DigitalRuby.IPBanCore
                     TimeSpan span = ipAddress.BanEndDate.Value - ipAddress.BanStartDate.Value;
                     int i = banTimes.Length;
                     firewallNeedsBlockedIPAddressesUpdate = true;
-                    unbanList?.Add(ipAddress.IPAddress);
 
                     // if more than one ban time, we have tiered ban times where the ban time increases 
                     if (banTimes.Length > 1)
@@ -752,12 +703,13 @@ namespace DigitalRuby.IPBanCore
                     if (i < banTimes.Length)
                     {
                         Logger.Warn("Preparing ip address {0} for next ban time {1}", ipAddress.IPAddress, banTimes[i]);
-                        ipDB.SetIPAddressesState(new string[] { ipAddress.IPAddress }, IPBanDB.IPAddressState.RemovePendingBecomeFailedLogin, transaction);
+                        ipDB.SetIPAddressesState([ipAddress.IPAddress], IPBanDB.IPAddressState.RemovePendingBecomeFailedLogin, transaction);
                     }
                     else
                     {
+                        unbanList?.Add(ipAddress.IPAddress);
                         Logger.Warn("Un-banning ip address {0}, ban expired", ipAddress.IPAddress);
-                        ipDB.SetIPAddressesState(new string[] { ipAddress.IPAddress }, IPBanDB.IPAddressState.RemovePending, transaction);
+                        ipDB.SetIPAddressesState([ipAddress.IPAddress], IPBanDB.IPAddressState.RemovePending, transaction);
                     }
                 }
                 // if fail login has expired, remove ip address from db
@@ -771,7 +723,7 @@ namespace DigitalRuby.IPBanCore
 
         private async Task UpdateExpiredIPAddressStates(CancellationToken cancelToken)
         {
-            HashSet<string> unbannedIPAddresses = new();
+            HashSet<string> unbannedIPAddresses = [];
             DateTime now = UtcNow;
             DateTime failLoginCutOff = (now - Config.ExpireTime);
             DateTime banCutOff = now;
@@ -780,8 +732,8 @@ namespace DigitalRuby.IPBanCore
             {
                 HandleWhitelistChanged(transaction, unbannedIPAddresses);
                 HandleExpiredLoginsAndBans(failLoginCutOff, banCutOff, transaction, unbannedIPAddresses);
-                ExecuteExternalProcessForIPAddresses(Config.ProcessToRunOnUnban, unbannedIPAddresses
-                    .Select(i => new IPAddressLogEvent(i, null, null, 0, IPAddressEventType.Unblocked)).ToArray());
+                ExecuteProcess(Config.ProcessToRunOnUnban, unbannedIPAddresses
+                    .Select(i => new IPAddressLogEvent(i, null, null, 0, IPAddressEventType.Unblocked)).ToArray(), AppName, RunTask);
 
                 // notify delegate of all unbanned ip addresses
                 if (IPBanDelegate != null)
@@ -843,7 +795,7 @@ namespace DigitalRuby.IPBanCore
                 Logger.Error("Error in delegate Update", ex);
             }
         }
-        
+
         /// <summary>
         /// Fires when firewall is created. Firewall property.
         /// </summary>
@@ -894,7 +846,7 @@ namespace DigitalRuby.IPBanCore
                 url = ReplaceUrl(url);
                 try
                 {
-                    KeyValuePair<string, object>[] headers = (Authorization is null ? null : new KeyValuePair<string, object>[] { new KeyValuePair<string, object>("Authorization", Authorization) });
+                    KeyValuePair<string, object>[] headers = (Authorization is null ? null : new KeyValuePair<string, object>[] { new("Authorization", Authorization) });
                     byte[] bytes = await RequestMaker.MakeRequestAsync(new Uri(url), headers: headers, cancelToken: cancelToken);
                     if (urlType == UrlType.Start)
                     {
@@ -952,6 +904,10 @@ namespace DigitalRuby.IPBanCore
                 {
                     await updater.Update(cancelToken);
                 }
+                catch (OperationCanceledException)
+                {
+                    // ignore
+                }
                 catch (Exception ex)
                 {
                     Logger.Error("Error in updater {0}: {1}", updater.GetType().FullName, ex);
@@ -964,7 +920,9 @@ namespace DigitalRuby.IPBanCore
             if (firewallNeedsBlockedIPAddressesUpdate)
             {
                 firewallNeedsBlockedIPAddressesUpdate = false;
-                List<IPBanFirewallIPAddressDelta> deltas = ipDB.EnumerateIPAddressesDeltaAndUpdateState(true, UtcNow, Config.ResetFailedLoginCountForUnbannedIPAddresses).Where(i => !i.Added || !IsWhitelisted(i.IPAddress)).ToList();
+                List<IPBanFirewallIPAddressDelta> deltas = ipDB.EnumerateIPAddressesDeltaAndUpdateState(true, UtcNow, Config.ResetFailedLoginCountForUnbannedIPAddresses)
+                    .Where(i => !i.Added || !IsWhitelisted(i.IPAddress, out _))
+                    .ToList();
                 Logger.Warn("Updating firewall with {0} entries...", deltas.Count);
                 Logger.Info("Firewall entries updated: {0}", string.Join(',', deltas.Select(d => d.IPAddress)));
                 await Firewall.BlockIPAddressesDelta(null, deltas, null, cancelToken);
@@ -983,12 +941,24 @@ namespace DigitalRuby.IPBanCore
 
         private async Task RunFirewallTasks(CancellationToken cancelToken)
         {
-            const int maxCount = 1000;
+            const int maxCount = 10000;
             int count = 0;
+            var taskCount = firewallTasks.Count;
+
+            if (taskCount == 0)
+            {
+                Logger.Debug("No firewall tasks to run");
+                return;
+            }
+
+            Logger.Info("Processing {0} firewall tasks", taskCount);
+
             while (firewallTasks.TryDequeue(out var firewallTask))
             {
+                Stopwatch sw = Stopwatch.StartNew();
                 try
                 {
+                    Logger.Debug("Running firewall task {0}", firewallTask.Name);
                     var result = firewallTask.TaskToRun.DynamicInvoke(firewallTask.State, firewallTask.CancelToken);
                     if (result is Task task)
                     {
@@ -1006,10 +976,15 @@ namespace DigitalRuby.IPBanCore
                         Logger.Error(ex);
                     }
                 }
+                finally
+                {
+                    sw.Stop();
+                    Logger.Debug("Ran firewall task {0} in {1:0.00}s", firewallTask.Name, sw.Elapsed.TotalSeconds);
+                }
                 if (++count == maxCount)
                 {
                     // behind in task processing
-                    Logger.Warn("Firewall task processing is running behind, this will cause memory to increase.");
+                    Logger.Warn("Firewall task processing is running behind with {0} tasks, this will cause memory to increase.", count);
                     break;
                 }
             }
@@ -1066,6 +1041,7 @@ namespace DigitalRuby.IPBanCore
                 return;
             }
 
+            TimeSpan minTimeBetweenEventsCurrent;
             newEvent.Source ??= "?";
             newEvent.UserName ??= string.Empty;
 
@@ -1093,9 +1069,15 @@ namespace DigitalRuby.IPBanCore
                     if (newEvent.Type == IPAddressEventType.SuccessfulLogin)
                     {
                         // for success logins increase time to log between events as some events (SSH) are reported multiple times
-                        minTimeBetweenEvents = TimeSpan.FromSeconds(15.0);
+                        minTimeBetweenEventsCurrent = successMinTimeOverride;
                     }
-                    if ((UtcNow - existing.Timestamp) >= minTimeBetweenEvents)
+                    else
+                    {
+                        minTimeBetweenEventsCurrent = ExtensionMethods.SmallestTimeSpan(existing.MinimumTimeBetweenLogins, newEvent.MinimumTimeBetweenLogins, minTimeBetweenEvents);
+                    }
+
+                    var timeDifference = UtcNow - existing.Timestamp;
+                    if (timeDifference >= minTimeBetweenEventsCurrent)
                     {
                         // update to the latest timestamp of the event
                         existing.Timestamp = UtcNow;
@@ -1105,7 +1087,11 @@ namespace DigitalRuby.IPBanCore
                     }
                     else
                     {
-                        Logger.Debug("Ignoring event {0} from {1}, min time between events has not elapsed", type, existing.IPAddress);
+                        Logger.Debug("Ignoring event {0} from ip {1}, time {2:0.00}s did not exceed min time {3:0.00}s between events",
+                            type,
+                            existing.IPAddress,
+                            timeDifference.TotalSeconds,
+                            minTimeBetweenEvents.TotalSeconds);
                     }
                 }
             }
@@ -1175,8 +1161,8 @@ namespace DigitalRuby.IPBanCore
                 pendingLogEvents.Clear();
             }
 
-            List<IPAddressLogEvent> bannedIPs = new();
-            List<IPAddressLogEvent> unbannedIPs = new();
+            List<IPAddressLogEvent> bannedIPs = [];
+            List<IPAddressLogEvent> unbannedIPs = [];
             object transaction = BeginTransaction();
             try
             {
@@ -1230,7 +1216,7 @@ namespace DigitalRuby.IPBanCore
                             break;
 
                         case IPAddressEventType.Unblocked:
-                            DB.SetIPAddressesState(new string[] { evt.IPAddress }, IPBanDB.IPAddressState.RemovePending, transaction);
+                            DB.SetIPAddressesState([evt.IPAddress], IPBanDB.IPAddressState.RemovePending, transaction);
                             firewallNeedsBlockedIPAddressesUpdate = true;
                             unbannedIPs.Add(evt);
                             break;
@@ -1243,8 +1229,8 @@ namespace DigitalRuby.IPBanCore
                 RollbackTransaction(transaction);
                 Logger.Error(ex);
             }
-            ExecuteExternalProcessForIPAddresses(Config.ProcessToRunOnBan, bannedIPs);
-            ExecuteExternalProcessForIPAddresses(Config.ProcessToRunOnUnban, unbannedIPs);
+            ExecuteProcess(Config.ProcessToRunOnBan, bannedIPs, AppName, RunTask);
+            ExecuteProcess(Config.ProcessToRunOnUnban, unbannedIPs, AppName, RunTask);
             return Task.CompletedTask;
         }
 
@@ -1261,50 +1247,29 @@ namespace DigitalRuby.IPBanCore
 
         private void ParseAndAddUriFirewallRules()
         {
-            List<IPBanUriFirewallRule> toRemove = new(updaters.Where(u => u is IPBanUriFirewallRule).Select(u => u as IPBanUriFirewallRule));
-            using StringReader reader = new(Config.FirewallUriRules);
-            string line;
-            while ((line = reader.ReadLine()) != null)
+            // all rules will be removed unless the config specifies to keep them
+            List<IPBanUriFirewallRule> toRemove = new(updaters.Where(u => u is IPBanUriFirewallRule)
+                .Select(u => u as IPBanUriFirewallRule));
+
+            // get list of all rules defined by current config
+            var rules = IPBanConfig.ParseFirewallUriRules(Config.FirewallUriRules, Firewall, this, this, RequestMaker);
+
+            // for each rule, determine if it still exists or needs adding
+            foreach (var rule in rules)
             {
-                line = line.Trim();
-                string[] pieces = line.Split(',');
-                if (pieces.Length >= 3)
+                if (updaters.Where(u => u.Equals(rule)).FirstOrDefault() is IPBanUriFirewallRule existingRule)
                 {
-                    if (TimeSpan.TryParse(pieces[1], out TimeSpan interval))
-                    {
-                        if (Uri.TryCreate(pieces[2], UriKind.Absolute, out Uri uri))
-                        {
-                            string rulePrefix = pieces[0];
-                            int maxCount = 10000;
-                            if (pieces.Length > 3 && int.TryParse(pieces[3], out int _maxCount))
-                            {
-                                maxCount = _maxCount;
-                            }
-                            IPBanUriFirewallRule newRule = new(Firewall, this, RequestMaker, rulePrefix, interval, uri, maxCount);
-                            if (updaters.Where(u => u.Equals(newRule)).FirstOrDefault() is IPBanUriFirewallRule existingRule)
-                            {
-                                // exact duplicate rule, do nothing
-                                toRemove.Remove(existingRule);
-                            }
-                            else
-                            {
-                                // new rule, add it
-                                updaters.Add(newRule);
-                            }
-                        }
-                        else
-                        {
-                            Logger.Warn("Invalid uri format in uri firewall rule {0}", line);
-                        }
-                    }
-                    else
-                    {
-                        Logger.Warn("Invalid timestamp format in uri firewall rule {0}", line);
-                    }
+                    // exact duplicate rule, don't remove
+                    toRemove.Remove(existingRule);
+                }
+                else
+                {
+                    // new rule, add it
+                    updaters.Add(rule);
                 }
             }
 
-            // remove any left-over rules that were not in the new config
+            // remove any left-over rules not in the new config
             foreach (IPBanUriFirewallRule updater in toRemove.ToArray())
             {
                 updater.DeleteRule();
